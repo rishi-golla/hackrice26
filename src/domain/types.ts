@@ -25,6 +25,7 @@ export type Snapshot = {
   mode: DataMode;
   complete: boolean;
   stale: boolean;
+  sources?: string[];
   events: CashEvent[];
 };
 
@@ -113,6 +114,10 @@ export function validateSnapshot(value: unknown): Snapshot {
   if (!modes.includes(input.mode as DataMode)) throw new Error('Snapshot.mode is unsupported');
   if (typeof input.complete !== 'boolean') throw new Error('Snapshot.complete must be boolean');
   if (typeof input.stale !== 'boolean') throw new Error('Snapshot.stale must be boolean');
+  if (input.sources !== undefined) {
+    if (!Array.isArray(input.sources)) throw new Error('Snapshot.sources must be an array');
+    input.sources.forEach(source => nonEmptyString(source, 'Snapshot.sources entry'));
+  }
   if (!Array.isArray(input.events)) throw new Error('Snapshot.events must be an array');
 
   return {
