@@ -59,7 +59,7 @@ describe('ElevenLabs speech provider', () => {
     });
 
     expect(request?.url).toBe(
-      'https://api.elevenlabs.io/v1/text-to-speech/voice-1?output_format=mp3_44100_128&enable_logging=false',
+      'https://api.elevenlabs.io/v1/text-to-speech/voice-1/stream?output_format=mp3_44100_128&enable_logging=false',
     );
     expect(request?.init.headers).toMatchObject({
       'xi-api-key': 'test-key',
@@ -116,6 +116,18 @@ describe('ElevenLabs speech provider', () => {
       fetchImpl: async () => Response.json({ language_code: 'en' }),
     });
     await expect(malformed.transcribe(new Uint8Array([1]), 'audio/wav')).rejects.toMatchObject({
+      code: 'provider-response',
+    });
+  });
+
+  it('rejects an empty successful TTS response as a provider error', async () => {
+    const provider = createElevenLabsSpeechProvider({
+      config,
+      replies: new Map([['reply-1', { text: 'Answer' }]]),
+      fetchImpl: async () => new Response(new Uint8Array(), { status: 200 }),
+    });
+
+    await expect(provider.synthesize('reply-1')).rejects.toMatchObject({
       code: 'provider-response',
     });
   });

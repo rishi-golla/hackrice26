@@ -203,7 +203,7 @@ export function createElevenLabsSpeechProvider({
         );
       }
 
-      const url = createRequestUrl(`/text-to-speech/${encodeURIComponent(config.voiceId)}`, {
+      const url = createRequestUrl(`/text-to-speech/${encodeURIComponent(config.voiceId)}/stream`, {
         output_format: config.outputFormat,
         enable_logging: config.zeroRetention ? 'false' : undefined,
       });
@@ -222,7 +222,15 @@ export function createElevenLabsSpeechProvider({
       if (!response.ok) {
         throw providerErrorFromStatus(response.status, 'synthesis');
       }
-      return new Uint8Array(await response.arrayBuffer());
+      const audio = new Uint8Array(await response.arrayBuffer());
+      if (audio.byteLength === 0) {
+        throw new SpeechProviderError(
+          'provider-response',
+          'ElevenLabs synthesis returned no audio.',
+          response.status,
+        );
+      }
+      return audio;
     },
   };
 }
