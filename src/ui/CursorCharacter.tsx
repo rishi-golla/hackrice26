@@ -38,6 +38,13 @@ export function CursorCharacter({
       style={style}
     >
       <span aria-hidden="true" className="cursor-character__halo" />
+      {state === 'listening' ? (
+        <span aria-hidden="true" className="cursor-character__dots">
+          {[0, 1, 2].map((dot) => (
+            <span key={dot} data-cursor-dot className="cursor-character__dot" />
+          ))}
+        </span>
+      ) : null}
       <span className="sr-only">{stateLabels[state]}</span>
     </div>
   );

@@ -20,6 +20,13 @@ describe('cursor conversation UI', () => {
     expect(character).toHaveAttribute('data-reduced-motion', 'true');
     expect(character).toHaveStyle({ left: '118px', top: '218px' });
     expect(character).toHaveTextContent('Listening');
+    expect(character.querySelectorAll('[data-cursor-dot]')).toHaveLength(3);
+  });
+
+  it('does not show the listening dots while idle', () => {
+    render(<CursorCharacter state="idle" pointer={{ x: 100, y: 200 }} />);
+
+    expect(screen.getByRole('status').querySelectorAll('[data-cursor-dot]')).toHaveLength(0);
   });
 
   it('clamps a response bubble inside the work area and keeps clarifications visible', () => {
