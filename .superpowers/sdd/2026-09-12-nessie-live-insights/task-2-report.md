@@ -2,7 +2,14 @@
 
 ## Status
 
-Complete. Commit `d58adc0` implements the Task 2 production code and tests.
+Complete after review fixes. Commits `d58adc0` and `b6d43e3` implement the Task 2 production code and tests; `0567e64` records the initial evidence report.
+
+## Review follow-up
+
+- **Status:** All five review findings fixed with failing regression tests observed before each production change.
+- **Commit:** `b6d43e3` (`fix: harden Nessie snapshot normalization`).
+- **Tests:** 57/57 combined normalizer, snapshot-store, and domain tests passed; `npm run typecheck` passed.
+- **Concerns:** Nessie statuses remain free-form at the boundary, so unknown values are excluded as unconfirmed. Recurring records without `upcoming_payment_date` are rejected when `recurring_date` cannot form a real date in the `payment_date` month.
 
 ## Scope
 
