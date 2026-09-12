@@ -37,8 +37,15 @@ describe('hosted provider boundaries', () => {
     const synthesizer = createElevenLabsSynthesizer({ apiKey: 'test', voiceId: 'voice', modelId: 'model', fetchImpl });
 
     await expect(synthesizer.synthesizeValidatedReply('The checked reply.')).resolves.toEqual(new Uint8Array([1, 2, 3]));
-    expect(fetchImpl).toHaveBeenCalledWith('https://api.elevenlabs.io/v1/text-to-speech/voice?output_format=mp3_44100_128', expect.objectContaining({ method: 'POST' }));
+    expect(fetchImpl).toHaveBeenCalledWith('https://api.elevenlabs.io/v1/text-to-speech/voice/stream?output_format=mp3_44100_128', expect.objectContaining({ method: 'POST' }));
     expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({ text: 'The checked reply.', model_id: 'model' });
+  });
+
+  it('rejects an empty ElevenLabs stream as an unsuccessful voice turn', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(new Uint8Array(), { status: 200 }));
+    const synthesizer = createElevenLabsSynthesizer({ apiKey: 'test', voiceId: 'voice', fetchImpl });
+
+    await expect(synthesizer.synthesizeValidatedReply('The checked reply.')).rejects.toThrow(/no audio/i);
   });
 
   it('sends released audio to ElevenLabs Scribe v2 and returns the transcript', async () => {
