@@ -16,6 +16,7 @@ let tray: Tray;
 let service: ChildProcessWithoutNullStreams;
 let servicePort = 0;
 let sessionId = '';
+let authSessionId = '';
 const token = randomBytes(32).toString('hex');
 let config: PublicConfig;
 let state: CursorState = 'idle';
@@ -28,9 +29,9 @@ let captureGeneration = 0;
 const cursorStates = z.enum(['idle', 'listening', 'thinking', 'speaking', 'clarifying', 'error']);
 const shortcut = 'CommandOrControl+Shift+Space';
 
-async function request<T>(route: string, body?: unknown): Promise<T> {
+async function request<T>(route: string, body?: unknown, useAuthSession = true): Promise<T> {
   const response = await fetch(`http://127.0.0.1:${servicePort}${route}`, {
-    method: body === undefined ? 'GET' : 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    method: body === undefined ? 'GET' : route.startsWith('/profile') ? 'PUT' : 'POST', headers: { Authorization: `Bearer ${useAuthSession && authSessionId ? authSessionId : token}`, 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(65000),
   });
   const result = await response.json();
@@ -153,6 +154,11 @@ function handle(name: string, schema: z.ZodTypeAny, action: (value: any) => unkn
 function registerIPC() {
   const empty = z.undefined();
   handle('initial', empty, () => config);
+  handle('login', z.object({ email: z.string().email(), password: z.string().min(1).max(200) }).strict(), async value => { const result = await request<{ id: string; userId: string; accountId: string; issuedAt: string; expiresAt: string }>('/auth/login', value, false); authSessionId = result.id; return result; });
+  handle('logout', empty, async () => { if (authSessionId) await request('/auth/logout', {}); authSessionId = ''; sessionId = ''; });
+  handle('getSession', empty, () => request('/auth/session'));
+  handle('getProfile', empty, () => request('/profile'));
+  handle('updateProfile', z.object({ reserveCents: z.number().int().nonnegative(), riskStyle: z.enum(['calm', 'direct', 'detailed']), language: z.literal('en-US'), monitoringEnabled: z.boolean() }).strict(), value => request('/profile', value));
   handle('monitor', z.boolean(), async enabled => { await cancel(); config.monitoring = enabled; monitor.setEnabled(enabled); send({ type: 'config', config }); return config; });
   handle('display', z.string(), async id => {
     if (!screen.getAllDisplays().some(d => String(d.id) === id)) throw new Error('Unknown display');
@@ -193,6 +199,8 @@ app.whenReady().then(async () => {
     displayId: String(screen.getPrimaryDisplay().id), monitoring: false, microphoneConsent: false,
     shortcut: process.platform === 'darwin' ? '⌘⇧Space' : 'Ctrl+Shift+Space', shortcutAvailable: false,
     permission: process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('screen') : 'system-managed' };
+  const authSession = await request<{ id: string }>('/auth/login', { email: 'demo@example.com', password: 'demo-password' }, false);
+  authSessionId = authSession.id;
   const createdSession = await request<{ sessionId: string }>('/session', { accountId: config.accountId });
   sessionId = createdSession.sessionId;
   const common = { frame: false, transparent: true, alwaysOnTop: true, hasShadow: false,
