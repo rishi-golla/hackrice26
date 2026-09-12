@@ -9,6 +9,7 @@ import { recognize, disposeRecognizer } from './recognize';
 import { extractPurchase } from './extract';
 import type { Frame, Rect } from './types';
 import type { Answer, CursorState, DesktopEvent, PublicConfig } from '../shared/contracts';
+import { registerNativeHoldToTalk } from './talk-hotkey';
 
 let card: BrowserWindow;
 let passive: BrowserWindow;
@@ -26,8 +27,9 @@ let annotation: Rect | undefined;
 let annotationExpires = 0;
 let quitting = false;
 let captureGeneration = 0;
+let nativeTalkHotkeyCleanup: (() => void) | undefined;
 const cursorStates = z.enum(['idle', 'listening', 'thinking', 'speaking', 'clarifying', 'error']);
-const shortcut = 'CommandOrControl+Shift+Space';
+const shortcut = 'CommandOrControl+Space';
 
 async function request<T>(route: string, body?: unknown, useAuthSession = true): Promise<T> {
   const response = await fetch(`http://127.0.0.1:${servicePort}${route}`, {
@@ -197,7 +199,7 @@ app.whenReady().then(async () => {
   const displays = screen.getAllDisplays();
   config = { ...details, displays: displays.map((d, i) => ({ id: String(d.id), label: d.label || `Display ${i + 1}` })),
     displayId: String(screen.getPrimaryDisplay().id), monitoring: false, microphoneConsent: false,
-    shortcut: process.platform === 'darwin' ? '⌘⇧Space' : 'Ctrl+Shift+Space', shortcutAvailable: false,
+    shortcut: process.platform === 'darwin' ? '⌘Space' : 'Ctrl+Space', shortcutAvailable: false,
     permission: process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('screen') : 'system-managed' };
   const authSession = await request<{ id: string }>('/auth/login', { email: 'demo@example.com', password: 'demo-password' }, false);
   authSessionId = authSession.id;
@@ -217,7 +219,9 @@ app.whenReady().then(async () => {
   tray = new Tray(icon); tray.setToolTip('Flicky — talk to your cursor');
   tray.setContextMenu(Menu.buildFromTemplate([{ label: 'Talk to Flicky / settings', click: () => showCard(true) }, { label: 'Quit Flicky', click: () => app.quit() }]));
   tray.on('click', () => showCard(true));
-  config.shortcutAvailable = globalShortcut.register(shortcut, () => { showCard(true); send({ type: 'voice-toggle' }); });
+  nativeTalkHotkeyCleanup = registerNativeHoldToTalk({ press: () => { card.hide(); send({ type: 'voice-start' }); }, release: () => send({ type: 'voice-stop' }) });
+  if (nativeTalkHotkeyCleanup) config.shortcutAvailable = true;
+  else config.shortcutAvailable = globalShortcut.register(shortcut, () => { card.hide(); send({ type: 'voice-toggle' }); });
   globalShortcut.register('Escape', () => { void cancel(); card.hide(); });
   powerMonitor.on('suspend', () => { void cancel(); config.monitoring = false; monitor.setEnabled(false); send({ type: 'config', config }); });
   powerMonitor.on('lock-screen', () => { void cancel(); config.monitoring = false; monitor.setEnabled(false); send({ type: 'config', config }); });
@@ -230,11 +234,11 @@ app.whenReady().then(async () => {
       annotation: annotation ? { ...annotation, x: annotation.x - display.bounds.x, y: annotation.y - display.bounds.y } : undefined });
     if (config.monitoring && String(screen.getDisplayNearestPoint(point).id) === config.displayId) monitor.sample({ ...point, displayId: config.displayId, at: Date.now() });
   }, 100).unref();
-  passive.showInactive(); showCard(true);
+  passive.showInactive();
 }).catch(error => { console.error('Flicky startup failed:', error instanceof Error ? error.message : 'Unknown failure'); app.quit(); });
 
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => {
-  quitting = true; generation++; captureGeneration++; monitor.dispose(); globalShortcut.unregisterAll();
+  quitting = true; generation++; captureGeneration++; monitor.dispose(); nativeTalkHotkeyCleanup?.(); nativeTalkHotkeyCleanup = undefined; globalShortcut.unregisterAll();
   void disposeRecognizer(); service?.stdin.end(); service?.kill('SIGTERM');
 });
