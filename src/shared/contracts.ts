@@ -28,6 +28,8 @@ export type DesktopEvent =
   | { type: 'answer'; answer: Answer }
   | { type: 'error'; message: string }
   | { type: 'state'; state: CursorState }
+  | { type: 'voice-start' }
+  | { type: 'voice-stop' }
   | { type: 'voice-toggle' }
   | { type: 'cancel' };
 
