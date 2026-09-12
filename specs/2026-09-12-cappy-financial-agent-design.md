@@ -1,6 +1,6 @@
 # Cappy Financial Agent Design
 
-**Status:** Approved design draft for review  
+**Status:** Approved for implementation  
 **Date:** 2026-09-12  
 **Product:** Cappy, a Capital One themed conversational financial companion
 
@@ -25,6 +25,9 @@ Cappy must feel like one product. Users see Cappy branding, Capital One inspired
 - A verified Nessie/Capital One sandbox adapter when its current contract and credentials are available.
 - Passive cursor gestures and overlays that never move the system pointer or click for the user.
 - Repository tests, macOS Xcode smoke validation, and startup documentation.
+- Local-first development with a working offline demo account and explicit provider switches.
+- Login, logout, account isolation, session expiry, and per-user Cappy preferences.
+- A replaceable model provider and an explicit tool registry for future cursor capabilities.
 
 ### Out of scope
 
@@ -34,6 +37,7 @@ Cappy must feel like one product. Users see Cappy branding, Capital One inspired
 - General-purpose tutoring, screen commentary, model selection, onboarding demonstrations, or unrelated UI pointing.
 - Root `README.md` edits unless the user explicitly requests them.
 - Production account linking or collection of production identity documents.
+- Embedding ElevenLabs, ML-model, or financial-provider secrets in the Xcode project or app binary.
 
 ## Product behavior
 
@@ -84,6 +88,16 @@ integer-cent forecast and explanation engine
 
 The gateway owns financial credentials and the mapping from a user session to an allowed account. The app never receives a provider key. The agent receives validated tool results, not raw account payloads or screenshots. The forecast engine remains deterministic and testable without a network or model.
 
+## Local-first runtime and identity
+
+Opening the Xcode project is a developer workflow for compiling and debugging Cappy on macOS. The resulting `Cappy.app` runs independently from Applications or the menu bar. Xcode configuration contains non-secret identifiers and endpoint selection only. Secrets stay in macOS Keychain for local development or in the server environment for shared deployments; they are never compiled into Swift, plist files, or the renderer.
+
+The first implementation includes a local demo identity provider so a teammate can sign in without a live Capital One account. It exposes the same `CappyAuthProvider` contract used by a future Capital One/Nessie identity adapter. Login creates a short-lived session bound to one allowlisted account. Every agent turn and finance tool call checks that session. Logout cancels the agent, clears active conversation and forecast caches, removes local account context, and makes outstanding tool calls fail closed. Switching accounts creates a new session and cannot reuse prior scenario memory.
+
+User preferences are scoped to the authenticated account and stored locally: reserve amount, risk explanation style, voice choice, language, accessibility settings, and monitoring preference. The agent receives only the preferences needed for the current turn. Preferences never override forecast safety rules or provider authorization.
+
+The response model is replaceable through a `CappyModelProvider` interface in the gateway. The initial provider may call the configured ML model; synthetic mode uses a deterministic response formatter. New cursor capabilities register typed tools through `CappyToolRegistry`, each with an explicit read/write policy, required permissions, account scope, and audit label. Financial write tools are disabled in this product version.
+
 ## Agent contract
 
 The native client depends on a Cappy-specific interface rather than Clicky’s Claude or ElevenLabs TTS classes:
@@ -125,7 +139,7 @@ ElevenLabs configuration is externalized through a short-lived session endpoint 
 
 ### Native macOS target
 
-Rename the project, scheme, targets, entry point, bundle display name, bundle identifier, and visible copy to Cappy. Rename `Buddy` and `Companion` implementation types to Cappy-specific names. Remove the Clicky-only onboarding, music, screenshots, generic Claude vision flow, model picker, Farza feedback controls, PostHog analytics, and generic pointing prompt. Keep capture, shortcut, audio conversion, permission, coordinate, and passive overlay code where it supports Cappy behavior.
+Rename the project, scheme, targets, entry point, bundle display name, bundle identifier, and visible copy to Cappy. Rename `Buddy` and `Companion` implementation types to Cappy-specific names. Remove the Clicky-only onboarding, music, screenshots, generic Claude vision flow, model picker, Farza feedback controls, PostHog analytics, and generic pointing prompt. Keep capture, shortcut, audio conversion, permission, coordinate, authentication, and passive overlay code where it supports Cappy behavior.
 
 Replace the generic `ElevenLabsTTSClient` with `CappyElevenLabsAgentClient`. Remove the Claude API path from the active target. Keep legal attribution and `macos/CLICKY-LICENSE.txt` as source notices, with no product UI references.
 
@@ -144,6 +158,8 @@ Use a restrained Capital One inspired palette: deep navy surfaces, bright red ac
 - Existing domain, service, desktop, OCR, conversation, stress, and E2E suites pass.
 - New gateway tests prove account isolation, tool schema validation, stale/incomplete labels, and no screenshot forwarding.
 - New agent-client tests prove session-token handling, cancellation, bounded context, and typed fallback.
+- Auth tests prove login, logout invalidation, account isolation, session expiry, and preference scoping.
+- Model-provider and tool-registry tests prove provider replacement, permission policy, and read-only enforcement.
 - OCR tests prove ambiguous totals require confirmation and stale captures cannot publish.
 - Branding scan fails on user-visible Clicky, Farza, Claude generic-chat, or Learning Buddy strings; legal source files are allowlisted.
 - Typecheck and production build pass.
