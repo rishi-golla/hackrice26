@@ -1,3 +1,12 @@
 /.git
 .worktrees/
 .DS_Store
+node_modules/
+dist/
+release/
+recordings/
+local-ledgers/
+*.log
+.env
+.env.*
+!.env.example

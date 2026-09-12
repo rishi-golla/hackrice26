@@ -1,0 +1,17 @@
+{
+  "name": "cursor-financial-bodyguard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "4.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.2",
+    "typescript": "7.0.2",
+    "vitest": "5.0.0"
+  }
+}
