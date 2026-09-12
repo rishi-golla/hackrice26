@@ -7,7 +7,7 @@ const require = createRequire(import.meta.url);
 await mkdir('dist', { recursive: true });
 await build({ entryPoints: { main: 'src/desktop/main.ts', preload: 'src/desktop/preload.ts', service: 'src/service/entry.ts' },
   outdir: 'dist', bundle: true, platform: 'node', format: 'cjs', target: 'node22', sourcemap: true,
-  external: ['electron', 'tesseract.js', 'dotenv', 'fastify'] });
+  external: ['electron', 'tesseract.js', 'dotenv', 'fastify', 'uiohook-napi'] });
 await Promise.all([rename('dist/main.js', 'dist/main.cjs'), rename('dist/preload.js', 'dist/preload.cjs'), rename('dist/service.js', 'dist/service.cjs')]);
 await viteBuild();
 await mkdir('dist/ocr', { recursive: true });
