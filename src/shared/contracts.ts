@@ -87,6 +87,8 @@ export interface FlickyBridge {
    * The API key never reaches the renderer.
    */
   getConvaiToken(context: BrowserContext): Promise<string>;
+  openScreenPermissions(): Promise<void>;
+  getScreenText(): Promise<string>;
   /**
    * Execute a registered financial tool (read-only) on behalf of the ConvAI agent.
    * Authenticated via the active session; account-scoped per policy.

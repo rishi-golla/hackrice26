@@ -7,7 +7,223 @@ import { createBrowserVoiceRuntime, ConvAIVoiceController, VoiceTurnController }
 import './styles.css';
 
 const money = (cents: number) => `${cents < 0 ? '-' : ''}$${(Math.abs(cents) / 100).toFixed(2)}`;
-const stateLabel: Record<CursorState, string> = { idle: 'Ready', listening: 'Listening', thinking: 'Thinking', speaking: 'Speaking', clarifying: 'Needs a detail', error: 'Needs attention' };
+const stateLabel: Record<CursorState, string> = {
+  idle: 'Ready', listening: 'Listening…', thinking: 'Thinking…',
+  speaking: 'Speaking…', clarifying: 'Needs a detail', error: 'Error',
+};
+
+// ── Login Modal ───────────────────────────────────────────────────────────────
+type LoginModalProps = {
+  onLogin: (email: string) => Promise<void>;
+  onDismiss: () => void;
+};
+function LoginModal({ onLogin, onDismiss }: LoginModalProps) {
+  const [email, setEmail] = useState('demo@flicky.ai');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!password.trim()) return;
+    setLoading(true);
+    // Simulate network auth (actual auth is hardcoded in the backend)
+    await new Promise(r => setTimeout(r, 1400));
+    setDone(true);
+    await new Promise(r => setTimeout(r, 700));
+    await onLogin(email);
+  };
+
+  if (done) {
+    return (
+      <div className="login-modal">
+        <div className="login-success">
+          <span className="login-check">✓</span>
+          <span>Connected to Capital One</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="login-modal">
+      <div className="login-header">
+        <span className="login-bank-icon">🏦</span>
+        <div>
+          <strong>Connect your bank</strong>
+          <small>Capital One · Secured by Nessie API</small>
+        </div>
+        <button className="login-dismiss" onClick={onDismiss}>×</button>
+      </div>
+      <form onSubmit={handleSubmit} className="login-form">
+        <label>
+          <span>Email</span>
+          <input
+            type="email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            autoComplete="email"
+            required
+          />
+        </label>
+        <label>
+          <span>Password</span>
+          <input
+            type="password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            placeholder="Any password for demo"
+            autoComplete="current-password"
+            required
+          />
+        </label>
+        <button type="submit" className="login-submit" disabled={loading}>
+          {loading ? <span className="login-spinner" /> : 'Connect →'}
+        </button>
+        <small className="login-footer">
+          256-bit encrypted · Read-only access · Demo account
+        </small>
+      </form>
+    </div>
+  );
+}
+
+// ── Proof Panel ───────────────────────────────────────────────────────────────
+function ProofPanel({ insights, accountEmail }: { insights: FinancialInsightsView; accountEmail: string | null }) {
+  const [billsOpen, setBillsOpen] = useState(false);
+  const [incomeOpen, setIncomeOpen] = useState(false);
+  const safeClass = insights.safeToSpendCents <= 0 ? 'danger' : insights.safeToSpendCents < 5000 ? 'warn' : 'ok';
+
+  return (
+    <section className="proof-panel">
+      {/* Account header row */}
+      <div className="proof-account">
+        <span className="proof-bank-icon">💳</span>
+        <div className="proof-account-info">
+          <strong>Capital One{insights.account.last4 ? ` ····${insights.account.last4}` : ''}</strong>
+          {accountEmail && <small>{accountEmail}</small>}
+        </div>
+        {(insights.coverage.stale || !insights.coverage.complete) && (
+          <span className="proof-badge warn">{insights.coverage.stale ? 'Stale' : 'Partial'}</span>
+        )}
+        <span className="proof-badge mode">{insights.coverage.mode}</span>
+      </div>
+
+      {/* Key numbers */}
+      <div className="proof-metrics">
+        <div className="proof-metric">
+          <span className="proof-label">Balance</span>
+          <strong className="proof-value">{money(insights.balanceCents)}</strong>
+        </div>
+        <div className={`proof-metric proof-metric--${safeClass}`}>
+          <span className="proof-label">Safe to spend</span>
+          <strong className={`proof-value proof-safe--${safeClass}`}>{money(insights.safeToSpendCents)}</strong>
+        </div>
+        {insights.rewardsPoints !== null && (
+          <div className="proof-metric">
+            <span className="proof-label">Rewards</span>
+            <strong className="proof-value proof-rewards">{insights.rewardsPoints.toLocaleString()} pts</strong>
+          </div>
+        )}
+      </div>
+
+      {/* Alert highlights */}
+      {insights.highlights.filter(h => /negative|stale|incomplete|overdraft/i.test(h)).map((h, i) => (
+        <div key={i} className="proof-alert">⚠ {h}</div>
+      ))}
+
+      {/* Info highlights */}
+      {insights.highlights.filter(h => !/negative|stale|incomplete|overdraft/i.test(h)).slice(0, 2).map((h, i) => (
+        <div key={i} className="proof-info">{h}</div>
+      ))}
+
+      {/* Obligations row */}
+      {(insights.recurringOutflowCents > 0 || insights.loanObligationsCents > 0) && (
+        <div className="proof-chips">
+          {insights.recurringOutflowCents > 0 && (
+            <span className="proof-chip">↓ {money(insights.recurringOutflowCents)} recurring/14d</span>
+          )}
+          {insights.loanObligationsCents > 0 && (
+            <span className="proof-chip proof-chip--loan">⬌ {money(insights.loanObligationsCents)} loans/14d</span>
+          )}
+        </div>
+      )}
+
+      {/* Expandable bills */}
+      {insights.upcomingBills.length > 0 && (
+        <div className="proof-expandable">
+          <button className="proof-toggle" type="button" onClick={() => setBillsOpen(v => !v)}>
+            <span>Upcoming bills <strong className="proof-count">{insights.upcomingBills.length}</strong></span>
+            <span>{billsOpen ? '−' : '+'}</span>
+          </button>
+          {billsOpen && (
+            <ul className="proof-list">
+              {insights.upcomingBills.slice(0, 5).map(b => (
+                <li key={b.id} className="proof-list-item">
+                  <span className="proof-item-label">{b.label}{b.recurring && <span className="proof-recur">↻</span>}</span>
+                  <span className="proof-item-right">
+                    <strong>{money(b.cents)}</strong>
+                    <small>{b.date}</small>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* Expandable income */}
+      {insights.expectedIncome.length > 0 && (
+        <div className="proof-expandable">
+          <button className="proof-toggle" type="button" onClick={() => setIncomeOpen(v => !v)}>
+            <span>Expected income <strong className="proof-count proof-count--income">{insights.expectedIncome.length}</strong></span>
+            <span>{incomeOpen ? '−' : '+'}</span>
+          </button>
+          {incomeOpen && (
+            <ul className="proof-list">
+              {insights.expectedIncome.slice(0, 4).map(inc => (
+                <li key={inc.id} className="proof-list-item">
+                  <span className="proof-item-label">{inc.label}</span>
+                  <span className="proof-item-right proof-item-right--income">
+                    <strong>+{money(inc.cents)}</strong>
+                    <small>{inc.date}</small>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* 30-day flow */}
+      <div className="proof-activity">
+        <span>↑ {money(insights.recentDepositsCents)} in</span>
+        <span>↓ {money(insights.recentWithdrawalsCents)} out</span>
+        <span className="proof-period">30 days</span>
+      </div>
+    </section>
+  );
+}
+
+// ── Forecast section ──────────────────────────────────────────────────────────
+function Forecast({ answer }: { answer: Answer }) {
+  const forecast = answer.forecast!;
+  return <section className={`forecast ${forecast.status}`}>
+    <div className="forecast-head">
+      <span className="eyebrow">14-day projection</span>
+      <strong>{forecast.status === 'negative' ? 'Overdraft risk' : forecast.status === 'below-reserve' ? 'Below reserve' : 'Within reserve'}</strong>
+    </div>
+    <div className="numbers">
+      <span>Lowest <b>{money(forecast.minimumCents)}</b><small>{forecast.minimumDate}</small></span>
+      <span>Safe to spend <b>{money(forecast.safeToSpendCents)}</b><small>reserve {money(forecast.reserveCents)}</small></span>
+    </div>
+    <ForecastChart baseline={forecast.baseline} afterPurchase={forecast.afterPurchase} reserveCents={forecast.reserveCents} />
+    <p>{answer.text}</p>
+    <small className="fresh">{forecast.stale ? 'Stale' : 'Fresh'} · {forecast.complete ? 'Complete' : 'Incomplete'}</small>
+  </section>;
+}
+
+// ── Main App ──────────────────────────────────────────────────────────────────
 function App() {
   const passive = new URLSearchParams(location.search).get('surface') === 'passive';
   const [config, setConfig] = useState<PublicConfig>();
@@ -20,22 +236,23 @@ function App() {
   const [muted, setMuted] = useState(false);
   const [cursor, setCursor] = useState({ x: 0, y: 0 });
   const [annotation, setAnnotation] = useState<{ x: number; y: number; width: number; height: number }>();
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [showLogin, setShowLogin] = useState(false);
+  const [accountEmail, setAccountEmail] = useState<string | null>(null);
+
   const candidateRef = useRef<CandidateView | undefined>(undefined);
   const configRef = useRef<PublicConfig | undefined>(undefined);
   const convaiRef = useRef<ConvAIVoiceController | null>(null);
   candidateRef.current = candidate;
   configRef.current = config;
 
-  // Legacy STT+TTS controller (used when ConvAI is not available)
   const voice = useMemo(() => new VoiceTurnController(window.flicky, createBrowserVoiceRuntime(), setState, setError), []);
 
-  // Build a fresh ConvAI context from current screen state
   const buildConvaiContext = () => ({
     ocrText: candidateRef.current?.sourceText || undefined,
     candidateCents: candidateRef.current?.amountCents ?? undefined,
   });
 
-  // Whether to use ConvAI or the legacy voice pipeline
   const useConvAI = () => Boolean(configRef.current?.capabilities?.convai);
 
   const startVoice = async () => {
@@ -45,7 +262,6 @@ function App() {
       setConfig(next);
       if (!next.microphoneConsent) throw new Error('Microphone permission is required.');
       if (next.capabilities?.convai) {
-        // Use ElevenLabs Conversational AI — full duplex, agent handles turn-taking
         const ctrl = new ConvAIVoiceController(
           window.flicky,
           next.accountId,
@@ -72,10 +288,30 @@ function App() {
     const ctrl = convaiRef.current;
     if (ctrl?.isActive()) { stopVoice(); return; }
     if (voice.isRecording()) { voice.stop(); return; }
+    // Require login before starting ConvAI
+    if (useConvAI() && !loggedIn) { setShowLogin(true); return; }
     await startVoice();
   };
+
+  const handleLogin = async (email: string) => {
+    setAccountEmail(email);
+    setLoggedIn(true);
+    setShowLogin(false);
+    await startVoice();
+  };
+
+  const handleStartAdvisor = () => {
+    if (!loggedIn && useConvAI()) {
+      setShowLogin(true);
+    } else {
+      void toggleVoice();
+    }
+  };
+
   useEffect(() => {
-    const passiveOff = window.flicky.onPassive(value => { setCursor(value.cursor); setAnnotation(value.annotation); setState(value.state); });
+    const passiveOff = window.flicky.onPassive(value => {
+      setCursor(value.cursor); setAnnotation(value.annotation); setState(value.state);
+    });
     if (passive) return () => passiveOff();
     window.flicky.initial().then(setConfig).catch(e => setError(String(e)));
     const off = window.flicky.onEvent(event => {
@@ -94,192 +330,157 @@ function App() {
     });
     return () => { off(); passiveOff(); voice.cancelLocal(); };
   }, [passive, voice]);
-  if (passive) return <div className="passive"><div className={`halo ${state}`} style={{ left: cursor.x + 18, top: cursor.y + 18 }} aria-hidden="true" />{state === 'listening' && <div className="talk-dots" style={{ left: cursor.x + 18, top: cursor.y + 34 }} aria-label="Listening"><span className="talk-dot" /><span className="talk-dot" /><span className="talk-dot" /></div>}{annotation && <div className="annotation" style={annotation}><span>Check this total</span></div>}</div>;
-  const submit = async (event: React.FormEvent) => { event.preventDefault(); if (!text.trim()) return; setError(''); try { await window.flicky.turn(text, candidate?.id); setText(''); } catch (e) { setError(e instanceof Error ? e.message : 'Turn failed'); } };
-  const toggleMute = () => { const next = !muted; setMuted(next); voice.setMuted(next); };
-  const forecast = answer?.forecast;
-  // Insights: prefer ConvAI live-updated, fall back to last /turn answer
-  const insights = convaiInsights ?? answer?.insights;
-  const isConvAIActive = Boolean(config?.capabilities?.convai);
-  const convAIConnected = isConvAIActive && (state === 'listening' || state === 'speaking' || state === 'thinking');
 
-  return <main className="card" aria-label="Flicky cursor companion">
-    <header>
-      <div className={`status-dot ${state}`} aria-hidden="true" />
-      <div>
-        <strong>Flicky</strong>
-        <span className="status">
-          {stateLabel[state]}
-          {isConvAIActive && <span className="convai-badge"> · AI Advisor</span>}
-        </span>
-      </div>
-      <button className="icon" aria-label="Hide Flicky" onClick={() => window.flicky.hide()}>×</button>
-    </header>
-    <section className="mode">
-      <span>{config?.mode === 'synthetic' ? 'Synthetic demo' : config?.mode}</span>
-      <span>{config?.permission === 'denied' ? 'Screen permission needed' : config?.monitoring ? 'Monitoring on' : 'Monitoring off'}</span>
-    </section>
-    {candidate && <section className="candidate">
-      <span className="eyebrow">Screen read</span>
-      <strong>{candidate.amountCents === null ? 'Amount needs confirmation' : money(candidate.amountCents)}</strong>
-      <small>{candidate.sourceText || candidate.reason}</small>
-      {candidate.amountCents !== null && (
-        isConvAIActive
-          ? <button onClick={() => void startVoice()}>Ask Flicky about this</button>
-          : <button onClick={() => setText(`Can I afford $${(candidate.amountCents! / 100).toFixed(2)} today?`)}>Ask about this</button>
-      )}
-    </section>}
-    {forecast && <Forecast answer={answer!} />}
-    {insights && <Insights insights={insights} />}
-    {isConvAIActive && !convAIConnected && !insights && (
-      <div className="convai-prompt">
-        <p>Hold <strong>{config?.shortcut || 'Ctrl+Space'}</strong> to talk to your financial advisor</p>
-        <small>I can see your screen and banking data — just ask anything</small>
-      </div>
-    )}
-    {error && <p className="error" role="alert">{error}</p>}
-    <form onSubmit={submit}>
-      <label htmlFor="ask">Talk to your cursor</label>
-      <div className="composer">
-        <input id="ask" value={text} onChange={e => setText(e.target.value)} placeholder={isConvAIActive ? 'Or type your question…' : 'Can I afford this?'} autoComplete="off" />
-        <button type="submit" aria-label="Send question">↵</button>
-      </div>
-      <div className="voice-row">
-        <VoiceControl
-          state={state}
-          muted={muted}
-          disabled={isConvAIActive ? false : (!config?.capabilities.transcription || !config?.capabilities.speech)}
-          onStart={() => void startVoice()}
-          onStop={stopVoice}
-          onToggleMute={toggleMute}
-          useToggle={isConvAIActive}
-        />
-        <small>{isConvAIActive ? 'AI advisor mode — full conversation' : `Hold ${config?.shortcut || 'Ctrl+Shift+Space'} for voice.`}</small>
-      </div>
-      <small>Typed input always works.</small>
-    </form>
-    <footer>
-      <button onClick={() => window.flicky.monitor(!config?.monitoring)}>{config?.monitoring ? 'Pause screen reading' : 'Arm screen reading'}</button>
-      <button onClick={() => window.flicky.capture()}>Read screen now</button>
-      <button onClick={() => window.flicky.forget()}>Forget</button>
-    </footer>
-  </main>;
-}
-function Forecast({ answer }: { answer: Answer }) {
-  const forecast = answer.forecast!;
-  return <section className={`forecast ${forecast.status}`}>
-    <div className="forecast-head"><span className="eyebrow">14-day projection</span><strong>{forecast.status === 'negative' ? 'Purchase risks overdraft' : forecast.status === 'below-reserve' ? 'Below reserve' : 'Within reserve'}</strong></div>
-    <div className="numbers"><span>Lowest <b>{money(forecast.minimumCents)}</b><small>{forecast.minimumDate}</small></span><span>Safe to spend <b>{money(forecast.safeToSpendCents)}</b><small>reserve {money(forecast.reserveCents)}</small></span></div>
-    <ForecastChart baseline={forecast.baseline} afterPurchase={forecast.afterPurchase} reserveCents={forecast.reserveCents} />
-    <p>{answer.text}</p><small className="fresh">{forecast.stale ? 'Stale snapshot' : 'Fresh snapshot'} · {forecast.complete ? 'Complete inputs' : 'Incomplete inputs'}</small>
-  </section>;
-}
-function Insights({ insights }: { insights: FinancialInsightsView }) {
-  const [billsOpen, setBillsOpen] = useState(false);
-  const [incomeOpen, setIncomeOpen] = useState(false);
-  const safeClass = insights.safeToSpendCents <= 0 ? 'danger' : insights.safeToSpendCents < 5000 ? 'warn' : 'ok';
-  const alertHighlights = insights.highlights.filter(h => /negative|stale|incomplete|overdraft/i.test(h));
-  const infoHighlights = insights.highlights.filter(h => !/negative|stale|incomplete|overdraft/i.test(h));
-  return (
-    <section className="insights" aria-label="Financial snapshot">
-      <div className="insights-header">
-        <span className="eyebrow">Live financial snapshot</span>
-        {(insights.coverage.stale || !insights.coverage.complete) && (
-          <span className="insights-badge warn">{insights.coverage.stale ? 'Stale' : 'Partial data'}</span>
-        )}
-        {insights.account.last4 && <span className="insights-badge mode">····{insights.account.last4}</span>}
-      </div>
-
-      <div className="insights-metrics">
-        <div className="insights-metric">
-          <span className="insights-label">Balance</span>
-          <strong className="insights-value">{money(insights.balanceCents)}</strong>
-        </div>
-        <div className={`insights-metric insights-metric--${safeClass}`}>
-          <span className="insights-label">Safe to spend</span>
-          <strong className={`insights-value insights-safe--${safeClass}`}>{money(insights.safeToSpendCents)}</strong>
-        </div>
-        {insights.rewardsPoints !== null && (
-          <div className="insights-metric">
-            <span className="insights-label">Rewards</span>
-            <strong className="insights-value insights-rewards">{insights.rewardsPoints.toLocaleString()} pts</strong>
+  if (passive) {
+    return (
+      <div className="passive">
+        <div className={`halo ${state}`} style={{ left: cursor.x + 18, top: cursor.y + 18 }} aria-hidden="true" />
+        {state === 'listening' && (
+          <div className="talk-dots" style={{ left: cursor.x + 18, top: cursor.y + 34 }} aria-label="Listening">
+            <span className="talk-dot" /><span className="talk-dot" /><span className="talk-dot" />
           </div>
         )}
+        {annotation && (
+          <div className="annotation" style={annotation}><span>Check this total</span></div>
+        )}
+      </div>
+    );
+  }
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!text.trim()) return;
+    setError('');
+    try { await window.flicky.turn(text, candidate?.id); setText(''); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Turn failed'); }
+  };
+  const toggleMute = () => { const next = !muted; setMuted(next); voice.setMuted(next); };
+  const forecast = answer?.forecast;
+  const insights = convaiInsights ?? answer?.insights;
+  const isConvAIActive = Boolean(config?.capabilities?.convai);
+  const convAIRunning = convaiRef.current?.isActive() || (state === 'listening' || state === 'speaking' || state === 'thinking');
+  const permissionDenied = config?.permission === 'denied';
+
+  return (
+    <main className="card" aria-label="Flicky financial advisor">
+      {/* Header */}
+      <header>
+        <div className={`status-dot ${state}`} aria-hidden="true" />
+        <div className="header-info">
+          <strong>Flicky</strong>
+          <span className="status">
+            {stateLabel[state]}
+            {isConvAIActive && <span className="convai-badge"> · AI Advisor</span>}
+          </span>
+        </div>
+        <div className="header-right">
+          {loggedIn && insights?.account.last4 && (
+            <span className="account-pill">💳 ·{insights.account.last4}</span>
+          )}
+          <button className="icon" aria-label="Hide Flicky" onClick={() => window.flicky.hide()}>×</button>
+        </div>
+      </header>
+
+      {/* Screen reading pill */}
+      <div className={`screen-pill ${permissionDenied ? 'screen-pill--denied' : candidate ? 'screen-pill--active' : 'screen-pill--scanning'}`}>
+        {permissionDenied ? (
+          <>
+            <span>Screen access needed</span>
+            <button className="screen-pill-btn" onClick={() => void window.flicky.openScreenPermissions()}>
+              Grant →
+            </button>
+          </>
+        ) : candidate?.amountCents !== null && candidate?.amountCents !== undefined ? (
+          <>
+            <span className="screen-dot-indicator" />
+            <span>Detected <strong>{money(candidate.amountCents)}</strong> on screen</span>
+            {isConvAIActive && (
+              <button className="screen-pill-btn" onClick={() => void startVoice()}>Ask →</button>
+            )}
+          </>
+        ) : (
+          <>
+            <span className="screen-dot-indicator scanning" />
+            <span>{candidate?.sourceText ? candidate.sourceText.slice(0, 40) + '…' : 'Reading screen…'}</span>
+          </>
+        )}
       </div>
 
-      {alertHighlights.length > 0 && (
-        <ul className="insights-alerts" role="alert">
-          {alertHighlights.map((h, i) => <li key={i} className="insights-alert">⚠ {h}</li>)}
-        </ul>
+      {/* Login modal */}
+      {showLogin && <LoginModal onLogin={handleLogin} onDismiss={() => setShowLogin(false)} />}
+
+      {/* Forecast */}
+      {forecast && !showLogin && <Forecast answer={answer!} />}
+
+      {/* Financial proof panel */}
+      {insights && !showLogin && (
+        <ProofPanel insights={insights} accountEmail={loggedIn ? accountEmail : null} />
       )}
 
-      {infoHighlights.length > 0 && (
-        <ul className="insights-info-list">
-          {infoHighlights.slice(0, 3).map((h, i) => <li key={i}>{h}</li>)}
-        </ul>
-      )}
-
-      {(insights.recurringOutflowCents > 0 || insights.loanObligationsCents > 0) && (
-        <div className="insights-row">
-          {insights.recurringOutflowCents > 0 && (
-            <span className="insights-chip">↓ {money(insights.recurringOutflowCents)} recurring/14d</span>
-          )}
-          {insights.loanObligationsCents > 0 && (
-            <span className="insights-chip insights-chip--loan">⬌ {money(insights.loanObligationsCents)} loans/14d</span>
-          )}
+      {/* ConvAI prompt when idle and logged in */}
+      {isConvAIActive && !convAIRunning && !insights && !showLogin && loggedIn && (
+        <div className="convai-prompt">
+          <p>Press <strong>{config?.shortcut || '⌥Space'}</strong> or tap the button to talk</p>
+          <small>I can see your screen and banking data</small>
         </div>
       )}
 
-      {insights.upcomingBills.length > 0 && (
-        <div className="insights-expandable">
-          <button className="insights-toggle" type="button" onClick={() => setBillsOpen(v => !v)} aria-expanded={billsOpen}>
-            <span>Upcoming bills <strong className="insights-count">{insights.upcomingBills.length}</strong></span>
-            <span aria-hidden="true">{billsOpen ? '−' : '+'}</span>
-          </button>
-          {billsOpen && (
-            <ul className="insights-item-list">
-              {insights.upcomingBills.slice(0, 6).map(b => (
-                <li key={b.id} className="insights-item">
-                  <span className="insights-item-label">{b.label}{b.recurring && <span className="insights-recur">↻</span>}</span>
-                  <span className="insights-item-right">
-                    <strong>{money(b.cents)}</strong>
-                    <small>{b.date}</small>
-                  </span>
-                </li>
-              ))}
-            </ul>
+      {/* Error */}
+      {error && <p className="error" role="alert">{error}</p>}
+
+      {/* Input area */}
+      {!showLogin && (
+        <div className="input-area">
+          {isConvAIActive ? (
+            <div className="convai-row">
+              <VoiceControl
+                state={state}
+                muted={muted}
+                disabled={false}
+                onStart={handleStartAdvisor}
+                onStop={stopVoice}
+                onToggleMute={toggleMute}
+                useToggle={true}
+              />
+              <form onSubmit={submit} className="inline-form">
+                <input
+                  value={text}
+                  onChange={e => setText(e.target.value)}
+                  placeholder="Or type a question…"
+                  autoComplete="off"
+                />
+                <button type="submit" aria-label="Send">↵</button>
+              </form>
+            </div>
+          ) : (
+            <form onSubmit={submit}>
+              <div className="composer">
+                <input
+                  id="ask"
+                  value={text}
+                  onChange={e => setText(e.target.value)}
+                  placeholder="Can I afford this?"
+                  autoComplete="off"
+                />
+                <button type="submit" aria-label="Send">↵</button>
+              </div>
+              <div className="voice-row">
+                <VoiceControl
+                  state={state}
+                  muted={muted}
+                  disabled={!config?.capabilities.transcription || !config?.capabilities.speech}
+                  onStart={() => void startVoice()}
+                  onStop={stopVoice}
+                  onToggleMute={toggleMute}
+                />
+                <small>Hold {config?.shortcut || 'Ctrl+Shift+Space'} for voice</small>
+              </div>
+            </form>
           )}
         </div>
       )}
-
-      {insights.expectedIncome.length > 0 && (
-        <div className="insights-expandable">
-          <button className="insights-toggle" type="button" onClick={() => setIncomeOpen(v => !v)} aria-expanded={incomeOpen}>
-            <span>Expected income <strong className="insights-count insights-count--income">{insights.expectedIncome.length}</strong></span>
-            <span aria-hidden="true">{incomeOpen ? '−' : '+'}</span>
-          </button>
-          {incomeOpen && (
-            <ul className="insights-item-list">
-              {insights.expectedIncome.slice(0, 4).map(inc => (
-                <li key={inc.id} className="insights-item">
-                  <span className="insights-item-label">{inc.label}</span>
-                  <span className="insights-item-right insights-item-right--income">
-                    <strong>+{money(inc.cents)}</strong>
-                    <small>{inc.date}</small>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-
-      <div className="insights-activity">
-        <span>↑ {money(insights.recentDepositsCents)} in</span>
-        <span>↓ {money(insights.recentWithdrawalsCents)} out</span>
-        <span className="insights-period">30 days</span>
-      </div>
-    </section>
+    </main>
   );
 }
+
 createRoot(document.getElementById('root')!).render(<App />);

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, screen, desktopCapturer, ipcMain, globalShortcut, systemPreferences, powerMonitor } from 'electron';
+import { app, BrowserWindow, Tray, Menu, nativeImage, screen, desktopCapturer, ipcMain, globalShortcut, systemPreferences, powerMonitor, shell } from 'electron';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -28,6 +28,7 @@ let annotationExpires = 0;
 let quitting = false;
 let captureGeneration = 0;
 let nativeTalkHotkeyCleanup: (() => void) | undefined;
+let lastScreenText = '';
 const cursorStates = z.enum(['idle', 'listening', 'thinking', 'speaking', 'clarifying', 'error']);
 const shortcut = 'Alt+Space';
 
@@ -99,6 +100,7 @@ async function capture() {
     if (wasPassiveVisible) passive.showInactive();
     if (wasCardVisible) card.showInactive();
     const words = await recognize(frame);
+    lastScreenText = words.map(w => w.text).join(' ');
     if (own !== captureGeneration || config.displayId !== String(display.id)) return;
     const candidate = extractPurchase(words, frame, { ...cursor, displayId: String(display.id), at: Date.now() });
     const id = randomUUID();
@@ -200,15 +202,21 @@ function registerIPC() {
       candidateCents: z.number().int().nonnegative().optional(),
     }).strict(),
     async value => {
+      // Use provided ocrText first; fall back to the latest captured screen text
+      const ocrText = value.ocrText || lastScreenText;
       const params = new URLSearchParams();
       if (value.browserUrl) params.set('browserUrl', value.browserUrl);
       if (value.pageTitle) params.set('pageTitle', value.pageTitle);
-      if (value.ocrText) params.set('ocrText', value.ocrText);
+      if (ocrText) params.set('ocrText', ocrText.slice(0, 2000));
       if (value.candidateCents !== undefined) params.set('candidateCents', String(value.candidateCents));
       const result = await request<{ signedUrl: string }>(`/convai/token?${params.toString()}`);
       return result.signedUrl;
     },
   );
+  handle('openScreenPermissions', z.undefined(), () => {
+    void shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+  });
+  handle('getScreenText', z.undefined(), () => lastScreenText);
   handle('executeTool',
     z.object({ name: z.string().min(1).max(120), input: z.record(z.unknown()) }).strict(),
     value => request('/tool', { name: value.name, input: value.input }),
@@ -219,7 +227,7 @@ app.whenReady().then(async () => {
   const details = await startService();
   const displays = screen.getAllDisplays();
   config = { ...details, displays: displays.map((d, i) => ({ id: String(d.id), label: d.label || `Display ${i + 1}` })),
-    displayId: String(screen.getPrimaryDisplay().id), monitoring: false, microphoneConsent: false,
+    displayId: String(screen.getPrimaryDisplay().id), monitoring: true, microphoneConsent: false,
     shortcut: process.platform === 'darwin' ? '⌥Space' : 'Alt+Space', shortcutAvailable: false,
     permission: process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('screen') : 'system-managed' };
   const authSession = await request<{ id: string }>('/auth/login', { email: 'demo@example.com', password: 'demo-password' }, false);
@@ -236,6 +244,8 @@ app.whenReady().then(async () => {
   card.webContents.session.setPermissionRequestHandler((contents, permission, callback) => callback(contents === card.webContents && permission === 'media' && config.microphoneConsent));
   card.webContents.session.setPermissionCheckHandler((contents, permission) => contents === card.webContents && permission === 'media' && config.microphoneConsent);
   await Promise.all([card.loadFile(path.join(__dirname, 'renderer/index.html')), passive.loadFile(path.join(__dirname, 'renderer/index.html'), { query: { surface: 'passive' } })]);
+  // Auto-enable screen reading — always on so ConvAI always has context
+  monitor.setEnabled(config.permission !== 'denied');
   const icon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVQ4T2NkYPj/n4ECwESJ5lEDRg0YDAwAQCIf8WOSXPoAAAAASUVORK5CYII=');
   tray = new Tray(icon); tray.setToolTip('Flicky — talk to your cursor');
   tray.setContextMenu(Menu.buildFromTemplate([{ label: 'Talk to Flicky / settings', click: () => showCard(true) }, { label: 'Quit Flicky', click: () => app.quit() }]));

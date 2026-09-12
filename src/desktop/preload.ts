@@ -17,6 +17,8 @@ const bridge: FlickyBridge = {
   speak: replyId => invoke('speak', replyId), state: state => invoke('state', state),
   getConvaiToken: context => invoke('getConvaiToken', context),
   executeTool: (name, input) => invoke('executeTool', { name, input }),
+  openScreenPermissions: () => invoke('openScreenPermissions'),
+  getScreenText: () => invoke('getScreenText'),
   onEvent: listener => {
     const handler = (_: unknown, value: Parameters<typeof listener>[0]) => listener(value);
     ipcRenderer.on('flicky:event', handler);
