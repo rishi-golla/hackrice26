@@ -13,7 +13,11 @@ export type SnapshotStoreOptions = {
 type CacheEntry = { snapshot: Snapshot; cachedAt: number };
 
 function cloneSnapshot(snapshot: Snapshot): Snapshot {
-  return { ...snapshot, events: snapshot.events.map(event => ({ ...event })) };
+  return {
+    ...snapshot,
+    ...(snapshot.sources ? { sources: [...snapshot.sources] } : {}),
+    events: snapshot.events.map(event => ({ ...event })),
+  };
 }
 
 export class SnapshotStore {

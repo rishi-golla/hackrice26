@@ -117,6 +117,7 @@ const normalizeInputSchema = z.object({
 });
 
 export function toCents(value: number, unit: NessieAmountUnit): number {
+  if (unit !== 'dollars' && unit !== 'cents') throw new Error('Nessie amount unit is unsupported');
   if (!Number.isFinite(value) || value < 0) {
     throw new Error('Nessie money value must be a finite nonnegative amount');
   }
@@ -129,13 +130,31 @@ function statusIs(status: string, ...values: string[]): boolean {
   return values.includes(status.toLowerCase());
 }
 
+function obligationConfidence(status: string): CashEvent['confidence'] {
+  return statusIs(status, 'pending', 'recurring', 'current', 'scheduled') ? 'scheduled' : 'unconfirmed';
+}
+
+function obligationCancelled(status: string): boolean {
+  return statusIs(status, 'cancelled', 'canceled', 'rejected');
+}
+
 function safeLabel(candidate: string | undefined, fallback: string, accountNumber: string | undefined): string {
-  if (!candidate || (accountNumber && candidate.includes(accountNumber))) return fallback;
+  const containsLongDigitSequence = candidate !== undefined && /(?:\d[\s().-]*){5,}/.test(candidate);
+  if (!candidate || containsLongDigitSequence || (accountNumber && candidate.includes(accountNumber))) return fallback;
   return candidate;
 }
 
 function event(input: CashEvent): CashEvent {
   return validateCashEvent(input);
+}
+
+function billDate(bill: NessieBill): string {
+  if (bill.upcoming_payment_date) return bill.upcoming_payment_date;
+  const paymentDate = bill.payment_date!;
+  if (bill.recurring_date === undefined) return paymentDate;
+  const anchor = `${paymentDate.slice(0, 8)}${String(bill.recurring_date).padStart(2, '0')}`;
+  if (!isISODate(anchor)) throw new Error('Nessie bill recurring date must form a valid ISO date');
+  return anchor;
 }
 
 function transactionEvent(
@@ -176,13 +195,13 @@ export function normalizeNessieSnapshot(
   const billEvents = input.bills.map(bill => event({
     id: `nessie:bill:${bill._id}`,
     sourceId: bill._id,
-    date: bill.upcoming_payment_date ?? bill.payment_date!,
+    date: billDate(bill),
     cents: -toCents(bill.payment_amount, options.amountUnit),
     label: safeLabel(bill.nickname ?? bill.payee, 'Bill', accountNumber),
     kind: 'bill',
-    confidence: 'scheduled',
+    confidence: obligationConfidence(bill.status),
     reflectedInBalance: statusIs(bill.status, 'completed', 'paid'),
-    cancelled: statusIs(bill.status, 'cancelled', 'canceled'),
+    cancelled: obligationCancelled(bill.status),
     ...(bill.recurring_date !== undefined || statusIs(bill.status, 'recurring')
       ? { recurrence: 'monthly' as const }
       : {}),
@@ -200,9 +219,9 @@ export function normalizeNessieSnapshot(
     cents: -toCents(loan.monthly_payment, options.amountUnit),
     label: safeLabel(loan.description, 'Loan payment', accountNumber),
     kind: 'bill',
-    confidence: 'scheduled',
+    confidence: obligationConfidence(loan.status),
     reflectedInBalance: statusIs(loan.status, 'completed', 'paid'),
-    cancelled: statusIs(loan.status, 'cancelled', 'canceled', 'rejected'),
+    cancelled: obligationCancelled(loan.status),
     recurrence: 'monthly',
   }));
 

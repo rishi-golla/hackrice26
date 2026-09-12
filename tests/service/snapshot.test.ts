@@ -27,6 +27,18 @@ describe('SnapshotStore', () => {
     expect(read).toHaveBeenCalledTimes(2);
   });
 
+  it('isolates cached source provenance from caller mutations', async () => {
+    const snapshot = { ...demoSnapshot(), sources: ['/accounts/demo-checking'] };
+    const store = new SnapshotStore({ read: async () => snapshot });
+
+    const first = await store.get('demo-checking', false);
+    first.sources!.push('/mutated');
+    const second = await store.get('demo-checking', false);
+
+    expect(second.sources).toEqual(['/accounts/demo-checking']);
+    expect(snapshot.sources).toEqual(['/accounts/demo-checking']);
+  });
+
   it('returns a stale cached snapshot after provider failure', async () => {
     let fail = false;
     const provider: SnapshotProvider = {

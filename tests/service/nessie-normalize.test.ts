@@ -46,6 +46,10 @@ describe('toCents', () => {
     expect(toCents(12050, 'cents')).toBe(12050);
   });
 
+  it('rejects unsupported amount units at runtime', () => {
+    expect(() => toCents(12050, 'euros' as never)).toThrow(/amount unit/i);
+  });
+
   it.each([
     [Number.NaN, 'dollars'],
     [Number.POSITIVE_INFINITY, 'dollars'],
@@ -119,9 +123,59 @@ describe('normalizeNessieSnapshot', () => {
 
     expect(result.events).toEqual([
       expect.objectContaining({ sourceId: 'recurring-bill', confidence: 'scheduled', cancelled: false, recurrence: 'monthly' }),
-      expect.objectContaining({ sourceId: 'cancelled-bill', confidence: 'scheduled', cancelled: true }),
+      expect.objectContaining({ sourceId: 'cancelled-bill', confidence: 'unconfirmed', cancelled: true }),
     ]);
     expect(normalizeEvents(result.events, options.today).map(event => event.sourceId)).toEqual(['recurring-bill']);
+  });
+
+  it('uses recurring_date as the monthly anchor when no upcoming payment date exists', () => {
+    const result = normalizeNessieSnapshot(input({
+      bills: [{
+        _id: 'recurring-bill', status: 'recurring', payee: 'Landlord', nickname: 'Rent',
+        payment_date: '2026-08-01', recurring_date: 13,
+        payment_amount: 60, account_id: 'nessie-account-1',
+      }],
+    }), options);
+
+    expect(result.events[0]).toMatchObject({ date: '2026-08-13', recurrence: 'monthly' });
+  });
+
+  it('rejects a recurring day that cannot form a valid anchor date', () => {
+    expect(() => normalizeNessieSnapshot(input({
+      bills: [{
+        _id: 'invalid-recurring-bill', status: 'recurring', payee: 'Landlord',
+        payment_date: '2026-02-01', recurring_date: 31,
+        payment_amount: 60, account_id: 'nessie-account-1',
+      }],
+    }), options)).toThrow(/recurring date/i);
+  });
+
+  it('keeps unknown and rejected bill or loan statuses out of forecasts', () => {
+    const result = normalizeNessieSnapshot(input({
+      bills: [{
+        _id: 'unknown-bill', status: 'mystery', payee: 'Unknown bill',
+        payment_date: '2026-09-13', payment_amount: 10, account_id: 'nessie-account-1',
+      }, {
+        _id: 'rejected-bill', status: 'rejected', payee: 'Rejected bill',
+        payment_date: '2026-09-13', payment_amount: 10, account_id: 'nessie-account-1',
+      }],
+      loans: [{
+        _id: 'unknown-loan', status: 'mystery', monthly_payment: 10, amount: 100,
+        description: 'Unknown loan', creation_date: '2026-09-13',
+      }, {
+        _id: 'rejected-loan', status: 'rejected', monthly_payment: 10, amount: 100,
+        description: 'Rejected loan', creation_date: '2026-09-13',
+      }],
+    }), options);
+
+    expect(result.events.map(({ sourceId, confidence, cancelled }) => ({ sourceId, confidence, cancelled })))
+      .toEqual([
+        { sourceId: 'unknown-bill', confidence: 'unconfirmed', cancelled: false },
+        { sourceId: 'rejected-bill', confidence: 'unconfirmed', cancelled: true },
+        { sourceId: 'unknown-loan', confidence: 'unconfirmed', cancelled: false },
+        { sourceId: 'rejected-loan', confidence: 'unconfirmed', cancelled: true },
+      ]);
+    expect(normalizeEvents(result.events, options.today)).toEqual([]);
   });
 
   it('marks completed transactions as reflected in the account balance', () => {
@@ -184,5 +238,21 @@ describe('normalizeNessieSnapshot', () => {
 
     expect(JSON.stringify(result)).not.toContain('1234567890123456');
     expect(result.events[0].label).toBe('Bill');
+  });
+
+  it('redacts formatted account numbers and long digit sequences from labels', () => {
+    const result = normalizeNessieSnapshot(input({
+      bills: [{
+        _id: 'formatted-account', status: 'pending', nickname: 'Visa 1234-5678-9012-3456',
+        payment_date: '2026-09-15', payment_amount: 40, account_id: 'nessie-account-1',
+      }],
+      loans: [{
+        _id: 'numeric-reference', status: 'current', monthly_payment: 10, amount: 100,
+        description: 'Loan reference 9876543210', creation_date: '2026-09-13',
+      }],
+    }), options);
+
+    expect(result.events.map(event => event.label)).toEqual(['Bill', 'Loan payment']);
+    expect(JSON.stringify(result.events)).not.toMatch(/1234-5678-9012-3456|9876543210/);
   });
 });
