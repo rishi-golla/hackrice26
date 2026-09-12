@@ -10,9 +10,28 @@ export interface PublicConfig {
 }
 export type CappyProfile = { reserveCents: number; riskStyle: 'calm' | 'direct' | 'detailed'; language: 'en-US'; monitoringEnabled: boolean };
 export type CappySession = { id: string; userId: string; accountId: string; issuedAt: string; expiresAt: string };
+
+export type UpcomingBillView = { id: string; label: string; date: string; cents: number; recurring: boolean };
+export type ExpectedIncomeView = { id: string; label: string; date: string; cents: number };
+export type FinancialInsightsView = {
+  balanceCents: number;
+  safeToSpendCents: number;
+  upcomingBills: UpcomingBillView[];
+  expectedIncome: ExpectedIncomeView[];
+  recurringOutflowCents: number;
+  loanObligationsCents: number;
+  rewardsPoints: number | null;
+  recentDepositsCents: number;
+  recentWithdrawalsCents: number;
+  coverage: { mode: string; complete: boolean; stale: boolean; sources: string[] };
+  highlights: string[];
+  account: { type?: string; nickname?: string; last4?: string };
+};
+
 export interface Answer {
   turnId: string; replyId: string; state: string; text: string;
   forecast?: Forecast; scenario?: unknown;
+  insights?: FinancialInsightsView;
 }
 export interface CandidateView {
   id: string; amountCents: number | null; sourceText: string;

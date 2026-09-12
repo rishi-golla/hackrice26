@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { Answer, CandidateView, CursorState, PublicConfig } from '../shared/contracts';
+import type { Answer, CandidateView, CursorState, FinancialInsightsView, PublicConfig } from '../shared/contracts';
 import { VoiceControl } from './VoiceControl';
 import { ForecastChart } from './ForecastChart';
 import { createBrowserVoiceRuntime, VoiceTurnController } from './voice';
@@ -21,11 +21,13 @@ function App() {
   const submit = async (event: React.FormEvent) => { event.preventDefault(); if (!text.trim()) return; setError(''); try { await window.flicky.turn(text, candidate?.id); setText(''); } catch (e) { setError(e instanceof Error ? e.message : 'Turn failed'); } };
   const toggleMute = () => { const next = !muted; setMuted(next); voice.setMuted(next); };
   const forecast = answer?.forecast;
+  const insights = answer?.insights;
   return <main className="card" aria-label="Flicky cursor companion">
     <header><div className={`status-dot ${state}`} aria-hidden="true" /><div><strong>Flicky</strong><span className="status">{stateLabel[state]}</span></div><button className="icon" aria-label="Hide Flicky" onClick={() => window.flicky.hide()}>×</button></header>
     <section className="mode"><span>{config?.mode === 'synthetic' ? 'Synthetic demo' : config?.mode}</span><span>{config?.permission === 'denied' ? 'Screen permission needed' : config?.monitoring ? 'Monitoring on' : 'Monitoring off'}</span></section>
     {candidate && <section className="candidate"><span className="eyebrow">Screen read</span><strong>{candidate.amountCents === null ? 'Amount needs confirmation' : money(candidate.amountCents)}</strong><small>{candidate.sourceText || candidate.reason}</small>{candidate.amountCents !== null && <button onClick={() => setText(`Can I afford $${(candidate.amountCents! / 100).toFixed(2)} today?`)}>Ask about this</button>}</section>}
     {forecast && <Forecast answer={answer!} />}
+    {insights && <Insights insights={insights} />}
     {error && <p className="error" role="alert">{error}</p>}
     <form onSubmit={submit}><label htmlFor="ask">Talk to your cursor</label><div className="composer"><input id="ask" value={text} onChange={e => setText(e.target.value)} placeholder="Can I afford this?" autoComplete="off" /><button type="submit" aria-label="Send question">↵</button></div><div className="voice-row"><VoiceControl state={state} muted={muted} disabled={!config?.capabilities.transcription || !config?.capabilities.speech} onStart={() => void startVoice()} onStop={() => voice.stop()} onToggleMute={toggleMute} /><small>Hold {config?.shortcut || 'Ctrl+Shift+Space'} for voice.</small></div><small>Typed input always works.</small></form>
     <footer><button onClick={() => window.flicky.monitor(!config?.monitoring)}>{config?.monitoring ? 'Pause screen reading' : 'Arm screen reading'}</button><button onClick={() => window.flicky.capture()}>Read screen now</button><button onClick={() => window.flicky.forget()}>Forget</button></footer>
@@ -39,5 +41,113 @@ function Forecast({ answer }: { answer: Answer }) {
     <ForecastChart baseline={forecast.baseline} afterPurchase={forecast.afterPurchase} reserveCents={forecast.reserveCents} />
     <p>{answer.text}</p><small className="fresh">{forecast.stale ? 'Stale snapshot' : 'Fresh snapshot'} · {forecast.complete ? 'Complete inputs' : 'Incomplete inputs'}</small>
   </section>;
+}
+function Insights({ insights }: { insights: FinancialInsightsView }) {
+  const [billsOpen, setBillsOpen] = useState(false);
+  const [incomeOpen, setIncomeOpen] = useState(false);
+  const safeClass = insights.safeToSpendCents <= 0 ? 'danger' : insights.safeToSpendCents < 5000 ? 'warn' : 'ok';
+  const alertHighlights = insights.highlights.filter(h => /negative|stale|incomplete|overdraft/i.test(h));
+  const infoHighlights = insights.highlights.filter(h => !/negative|stale|incomplete|overdraft/i.test(h));
+  return (
+    <section className="insights" aria-label="Financial snapshot">
+      <div className="insights-header">
+        <span className="eyebrow">Live financial snapshot</span>
+        {(insights.coverage.stale || !insights.coverage.complete) && (
+          <span className="insights-badge warn">{insights.coverage.stale ? 'Stale' : 'Partial data'}</span>
+        )}
+        {insights.account.last4 && <span className="insights-badge mode">····{insights.account.last4}</span>}
+      </div>
+
+      <div className="insights-metrics">
+        <div className="insights-metric">
+          <span className="insights-label">Balance</span>
+          <strong className="insights-value">{money(insights.balanceCents)}</strong>
+        </div>
+        <div className={`insights-metric insights-metric--${safeClass}`}>
+          <span className="insights-label">Safe to spend</span>
+          <strong className={`insights-value insights-safe--${safeClass}`}>{money(insights.safeToSpendCents)}</strong>
+        </div>
+        {insights.rewardsPoints !== null && (
+          <div className="insights-metric">
+            <span className="insights-label">Rewards</span>
+            <strong className="insights-value insights-rewards">{insights.rewardsPoints.toLocaleString()} pts</strong>
+          </div>
+        )}
+      </div>
+
+      {alertHighlights.length > 0 && (
+        <ul className="insights-alerts" role="alert">
+          {alertHighlights.map((h, i) => <li key={i} className="insights-alert">⚠ {h}</li>)}
+        </ul>
+      )}
+
+      {infoHighlights.length > 0 && (
+        <ul className="insights-info-list">
+          {infoHighlights.slice(0, 3).map((h, i) => <li key={i}>{h}</li>)}
+        </ul>
+      )}
+
+      {(insights.recurringOutflowCents > 0 || insights.loanObligationsCents > 0) && (
+        <div className="insights-row">
+          {insights.recurringOutflowCents > 0 && (
+            <span className="insights-chip">↓ {money(insights.recurringOutflowCents)} recurring/14d</span>
+          )}
+          {insights.loanObligationsCents > 0 && (
+            <span className="insights-chip insights-chip--loan">⬌ {money(insights.loanObligationsCents)} loans/14d</span>
+          )}
+        </div>
+      )}
+
+      {insights.upcomingBills.length > 0 && (
+        <div className="insights-expandable">
+          <button className="insights-toggle" type="button" onClick={() => setBillsOpen(v => !v)} aria-expanded={billsOpen}>
+            <span>Upcoming bills <strong className="insights-count">{insights.upcomingBills.length}</strong></span>
+            <span aria-hidden="true">{billsOpen ? '−' : '+'}</span>
+          </button>
+          {billsOpen && (
+            <ul className="insights-item-list">
+              {insights.upcomingBills.slice(0, 6).map(b => (
+                <li key={b.id} className="insights-item">
+                  <span className="insights-item-label">{b.label}{b.recurring && <span className="insights-recur">↻</span>}</span>
+                  <span className="insights-item-right">
+                    <strong>{money(b.cents)}</strong>
+                    <small>{b.date}</small>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {insights.expectedIncome.length > 0 && (
+        <div className="insights-expandable">
+          <button className="insights-toggle" type="button" onClick={() => setIncomeOpen(v => !v)} aria-expanded={incomeOpen}>
+            <span>Expected income <strong className="insights-count insights-count--income">{insights.expectedIncome.length}</strong></span>
+            <span aria-hidden="true">{incomeOpen ? '−' : '+'}</span>
+          </button>
+          {incomeOpen && (
+            <ul className="insights-item-list">
+              {insights.expectedIncome.slice(0, 4).map(inc => (
+                <li key={inc.id} className="insights-item">
+                  <span className="insights-item-label">{inc.label}</span>
+                  <span className="insights-item-right insights-item-right--income">
+                    <strong>+{money(inc.cents)}</strong>
+                    <small>{inc.date}</small>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      <div className="insights-activity">
+        <span>↑ {money(insights.recentDepositsCents)} in</span>
+        <span>↓ {money(insights.recentWithdrawalsCents)} out</span>
+        <span className="insights-period">30 days</span>
+      </div>
+    </section>
+  );
 }
 createRoot(document.getElementById('root')!).render(<App />);

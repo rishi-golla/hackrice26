@@ -8,6 +8,7 @@ import { ProfileStore } from './profile';
 import { assertAccountAccess } from './policy';
 import { createCappyToolRegistry, type CappyToolRegistry } from './tools';
 import { createDeterministicFormatter, type CappyModelProvider } from './model';
+import { buildFinancialInsights } from '../domain/insights';
 
 export interface ServerConfig {
   sessionToken: string;
@@ -124,13 +125,17 @@ export function buildServer(config: ServerConfig, provider: SnapshotProvider, de
     const authSession = current(request); if (conversationSession(body.sessionId) !== authSession.accountId) throw Object.assign(new Error('Unknown account or session'), { statusCode: 403 });
     const snapshot = await store.get(authSession.accountId, !body.hover);
     const reply = await conversation.turn(body, snapshot);
+    // Always attach live financial insights so the cursor card can surface high-impact context
+    // regardless of whether the turn was a purchase query or a general question.
+    const profile = profiles.get(authSession.userId, authSession.accountId);
+    const insights = buildFinancialInsights(snapshot, profile.reserveCents);
     // The formatter is deliberately downstream of deterministic tool/forecast results.
     // It may shape wording, but it never supplies financial facts.
     if (model && snapshot.mode === 'synthetic' && reply.state === 'idle') {
       const formatted = await model.complete({ system: 'Format the grounded Cappy answer without changing facts.', user: reply.text, tools: [] });
-      return { ...reply, text: formatted.text || reply.text };
+      return { ...reply, text: formatted.text || reply.text, insights };
     }
-    return reply;
+    return { ...reply, insights };
   });
   server.post('/cancel', async request => { const { sessionId } = sessionInput.parse(request.body); if (conversationSession(sessionId) !== current(request).accountId) throw Object.assign(new Error('Unknown account or session'), { statusCode: 403 }); conversation.cancel(sessionId); return { ok: true }; });
   server.post('/forget', async request => { const { sessionId } = sessionInput.parse(request.body); if (conversationSession(sessionId) !== current(request).accountId) throw Object.assign(new Error('Unknown account or session'), { statusCode: 403 }); conversation.forget(sessionId); return { ok: true }; });
