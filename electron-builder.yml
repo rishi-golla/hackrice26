@@ -1,5 +1,5 @@
-appId: dev.flicky.desktop
-productName: Flicky
+appId: com.abhijithutla.cappy.desktop
+productName: Cappy
 directories:
   output: release
 files:
@@ -13,7 +13,7 @@ mac:
   category: public.app-category.finance
   identity: null
   extendInfo:
-    NSMicrophoneUsageDescription: Flicky records only when you activate voice input.
-    NSScreenCaptureUsageDescription: Flicky reads a checkout total locally when you enable screen analysis.
+    NSMicrophoneUsageDescription: Cappy records only when you activate voice input.
+    NSScreenCaptureUsageDescription: Cappy reads checkout totals locally when you enable screen analysis.
 win:
   target: dir
