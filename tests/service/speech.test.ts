@@ -102,4 +102,38 @@ describe('ElevenLabs speech provider', () => {
       code: 'authentication',
     });
   });
+
+  it('maps rate limits and malformed provider payloads without leaking the response body', async () => {
+    const rateLimited = createElevenLabsSpeechProvider({
+      config,
+      replies: new Map([['reply-1', { text: 'Answer' }]]),
+      fetchImpl: async () => new Response('secret provider details', { status: 429 }),
+    });
+    await expect(rateLimited.synthesize('reply-1')).rejects.toMatchObject({ code: 'rate-limit' });
+
+    const malformed = createElevenLabsSpeechProvider({
+      config,
+      fetchImpl: async () => Response.json({ language_code: 'en' }),
+    });
+    await expect(malformed.transcribe(new Uint8Array([1]), 'audio/wav')).rejects.toMatchObject({
+      code: 'provider-response',
+    });
+  });
+
+  it('enforces a deadline and caller cancellation', async () => {
+    const fetchImpl = async (_url: string | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      });
+    const provider = createElevenLabsSpeechProvider({ config: { ...config, timeoutMs: 1 }, fetchImpl });
+
+    await expect(provider.transcribe(new Uint8Array([1]), 'audio/wav')).rejects.toMatchObject({
+      code: 'timeout',
+    });
+
+    const controller = new AbortController();
+    const cancelled = provider.transcribe(new Uint8Array([1]), 'audio/wav', controller.signal);
+    controller.abort();
+    await expect(cancelled).rejects.toMatchObject({ code: 'cancelled' });
+  });
 });

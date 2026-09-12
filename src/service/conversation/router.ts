@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type {
   ConversationSession,
   Intent,
+  IntentRouterContext,
   IntentRouterProvider,
   RouterReference,
 } from './types.js';
@@ -66,9 +67,17 @@ const ALLOWED_INTENTS: readonly Intent['kind'][] = [
   'unsupported',
 ];
 
-function toRouterReferences(session: ConversationSession): RouterReference[] {
-  return session.references
-    .filter((reference) => reference.confirmed)
+function toRouterReferences(
+  session: ConversationSession,
+  context: IntentRouterContext,
+): RouterReference[] {
+  const references = new Map<string, ConversationSession['references'][number]>();
+  for (const reference of [...session.references.filter((reference) => reference.confirmed), ...(context.freshReferences ?? [])]) {
+    if (!references.has(reference.id)) {
+      references.set(reference.id, reference);
+    }
+  }
+  return [...references.values()]
     .map((reference) => ({
       id: reference.id,
       label: JSON.stringify(reference.label),
@@ -78,11 +87,20 @@ function toRouterReferences(session: ConversationSession): RouterReference[] {
     }));
 }
 
-function validateReferenceIds(intent: Intent, session: ConversationSession): void {
-  const knownIds = new Set(
+function validateReferenceIds(
+  intent: Intent,
+  session: ConversationSession,
+  context: IntentRouterContext,
+): void {
+  const confirmedIds = new Set(
     session.references.filter((reference) => reference.confirmed).map((reference) => reference.id),
   );
+  const evaluableIds = new Set([
+    ...confirmedIds,
+    ...(context.freshReferences ?? []).map((reference) => reference.id),
+  ]);
   const ids = intent.kind === 'evaluate' ? intent.purchaseIds : intent.kind === 'remember' ? [intent.purchaseId] : [];
+  const knownIds = intent.kind === 'evaluate' ? evaluableIds : confirmedIds;
   if (ids.some((id) => !knownIds.has(id)) || new Set(ids).size !== ids.length) {
     throw new IntentRouterError(
       'unknown-reference',
@@ -95,6 +113,7 @@ export async function routeIntent(
   text: string,
   session: ConversationSession,
   provider: IntentRouterProvider,
+  context: IntentRouterContext = {},
 ): Promise<Intent> {
   const utterance = text.trim();
   if (utterance.length === 0) {
@@ -103,11 +122,14 @@ export async function routeIntent(
 
   let raw: unknown;
   try {
-    raw = await provider({
+    const routerRequest = {
       utterance,
-      references: toRouterReferences(session),
+      references: toRouterReferences(session, context),
       allowedIntents: ALLOWED_INTENTS,
-    });
+      ...(context.today ? { today: context.today } : {}),
+      ...(context.timezone ? { timezone: context.timezone } : {}),
+    } satisfies Parameters<IntentRouterProvider>[0];
+    raw = await provider(routerRequest);
   } catch (error) {
     throw new IntentRouterError('provider-failed', 'The intent provider failed.', {
       cause: error,
@@ -122,6 +144,6 @@ export async function routeIntent(
   }
 
   const intent = parsed.data;
-  validateReferenceIds(intent, session);
+  validateReferenceIds(intent, session, context);
   return intent;
 }
