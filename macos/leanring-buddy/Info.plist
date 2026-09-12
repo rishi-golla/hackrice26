@@ -2,21 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>LSUIElement</key>
-	<true/>
-	<key>CFBundleDisplayName</key>
-	<string>Flicky</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Flicky reads checkout totals locally when you enable screen analysis.</string>
 	<key>SUFeedURL</key>
 	<string>https://raw.githubusercontent.com/julianjear/makesomething-mac-app/main/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>/l3d2rw5ZZFRU3AadP/w2Zf8FHfhA6bKv16BQOV5OSk=</string>
 	<key>VoiceTranscriptionProvider</key>
 	<string>apple</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Flicky uses your microphone so you can talk to it</string>
-	<key>NSScreenCaptureUsageDescription</key>
-	<string>Flicky reads checkout totals locally when you enable screen analysis.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Flicky uses local speech recognition to transcribe your voice.</string>
 </dict>
 </plist>
