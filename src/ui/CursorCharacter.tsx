@@ -37,7 +37,13 @@ export function CursorCharacter({
       aria-label={stateLabels[state]}
       style={style}
     >
-      <span aria-hidden="true" className="cursor-character__halo" />
+      <img
+        aria-hidden="true"
+        alt=""
+        className="cursor-character__image"
+        draggable={false}
+        src="./cursor.png"
+      />
       {state === 'listening' ? (
         <span aria-hidden="true" className="cursor-character__dots">
           {[0, 1, 2].map((dot) => (

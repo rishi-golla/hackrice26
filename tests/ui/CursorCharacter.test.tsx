@@ -20,6 +20,7 @@ describe('cursor conversation UI', () => {
     expect(character).toHaveAttribute('data-reduced-motion', 'true');
     expect(character).toHaveStyle({ left: '118px', top: '218px' });
     expect(character).toHaveTextContent('Listening');
+    expect(character.querySelector('img')).toHaveAttribute('src', './cursor.png');
     expect(character.querySelectorAll('[data-cursor-dot]')).toHaveLength(3);
   });
 
