@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { readFile } from 'node:fs/promises';
 import { buildServer } from './server';
+import { createDemoAuthProvider } from './auth';
 import { demoSnapshot } from '../fixtures/demo';
 import type { Snapshot } from '../domain/types';
 
@@ -20,7 +21,7 @@ async function main() {
       // Fixtures retain their stated date/asOf; never relabel recorded data as fresh live data.
       return structuredClone(recording ?? demoSnapshot());
     },
-  });
+  }, { auth: createDemoAuthProvider() });
   const address = await server.listen({ host: '127.0.0.1', port: 0 });
   process.stdout.write(JSON.stringify({ port: Number(new URL(address).port), accountId: sample.accountId, mode,
     capabilities: { router: false, transcription: false, speech: false, financialActions: false } }) + '\n');

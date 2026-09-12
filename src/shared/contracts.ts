@@ -8,6 +8,8 @@ export interface PublicConfig {
   monitoring: boolean; microphoneConsent: boolean; capabilities: Capabilities;
   shortcut: string; shortcutAvailable: boolean; permission: string;
 }
+export type CappyProfile = { reserveCents: number; riskStyle: 'calm' | 'direct' | 'detailed'; language: 'en-US'; monitoringEnabled: boolean };
+export type CappySession = { id: string; userId: string; accountId: string; issuedAt: string; expiresAt: string };
 export interface Answer {
   turnId: string; replyId: string; state: string; text: string;
   forecast?: Forecast; scenario?: unknown;
@@ -31,6 +33,11 @@ export type DesktopEvent =
 
 /** Renderer has no generic HTTP, filesystem, shell, or financial-write capability. */
 export interface FlickyBridge {
+  login(email: string, password: string): Promise<CappySession>;
+  logout(): Promise<void>;
+  getSession(): Promise<CappySession>;
+  getProfile(): Promise<CappyProfile>;
+  updateProfile(profile: CappyProfile): Promise<CappyProfile>;
   initial(): Promise<PublicConfig>;
   monitor(enabled: boolean): Promise<PublicConfig>;
   selectDisplay(id: string): Promise<PublicConfig>;
