@@ -113,27 +113,14 @@ const response = await fetch('https://api.elevenlabs.io/v1/convai/agents/create'
       agent: {
         prompt: {
           prompt: SYSTEM_PROMPT,
-          llm: 'claude-3-5-sonnet',
+          llm: 'gemini-2.0-flash',
           temperature: 0.4,
           max_tokens: 300,
         },
         first_message: "Hi! I'm Flicky, your personal financial advisor. I can see your account and what you're browsing. What would you like to know?",
-        language: 'en',
-      },
-      asr: {
-        quality: 'high',
-        user_input_audio_format: 'pcm_16000',
-        keywords: [],
-      },
-      tts: {
-        model_id: 'eleven_flash_v2_5',
-        voice_id: voiceId,
-        agent_output_audio_format: 'pcm_16000',
-        optimize_streaming_latency: 3,
       },
       conversation: {
         max_duration_seconds: 300,
-        client_events: ['audio', 'transcript', 'interruption', 'agent_response'],
       },
     },
     tools: TOOLS,
