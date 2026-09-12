@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Synthetic checkout demo</title>
+<style>body{font:24px system-ui;background:#eef2ff;color:#111827;padding:70px}main{max-width:650px;background:white;border-radius:24px;padding:40px}button,select{font:inherit;padding:14px;border-radius:8px}button{background:#183cad;color:white;border:0}strong{font-size:38px}small{display:block;margin:16px 0;color:#475569}</style>
+<main><small>Synthetic checkout demo · no payment or network request</small><h1>Weekend tickets</h1>
+<label>Demo price <select id="price"><option value="200">$200.00</option><option value="10">$10.00</option></select></label>
+<p>Order total: <strong id="total">$200.00</strong></p><button id="buy">Complete Purchase</button><p id="status" aria-live="polite"></p></main>
+<script>document.querySelector('#price').onchange=e=>document.querySelector('#total').textContent='$'+Number(e.target.value).toFixed(2);document.querySelector('#buy').onclick=()=>document.querySelector('#status').textContent='Demo complete. No money moved.';</script></html>
