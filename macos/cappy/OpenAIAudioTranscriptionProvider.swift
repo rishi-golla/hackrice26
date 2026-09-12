@@ -16,7 +16,7 @@ struct OpenAIAudioTranscriptionProviderError: LocalizedError {
     }
 }
 
-final class OpenAIAudioTranscriptionProvider: BuddyTranscriptionProvider {
+final class OpenAIAudioTranscriptionProvider: CappyTranscriptionProvider {
     private let apiKey = AppBundleConfiguration.stringValue(forKey: "OpenAIAPIKey")
     private let modelName = AppBundleConfiguration.stringValue(forKey: "OpenAITranscriptionModel")
         ?? "gpt-4o-transcribe"
@@ -38,7 +38,7 @@ final class OpenAIAudioTranscriptionProvider: BuddyTranscriptionProvider {
         onTranscriptUpdate: @escaping (String) -> Void,
         onFinalTranscriptReady: @escaping (String) -> Void,
         onError: @escaping (Error) -> Void
-    ) async throws -> any BuddyStreamingTranscriptionSession {
+    ) async throws -> any CappyStreamingTranscriptionSession {
         guard let apiKey else {
             throw OpenAIAudioTranscriptionProviderError(
                 message: unavailableExplanation ?? "OpenAI transcription is not configured."
@@ -56,7 +56,7 @@ final class OpenAIAudioTranscriptionProvider: BuddyTranscriptionProvider {
     }
 }
 
-private final class OpenAIAudioTranscriptionSession: BuddyStreamingTranscriptionSession {
+private final class OpenAIAudioTranscriptionSession: CappyStreamingTranscriptionSession {
     let finalTranscriptFallbackDelaySeconds: TimeInterval = 8.0
 
     private struct TranscriptionResponse: Decodable {
@@ -74,7 +74,7 @@ private final class OpenAIAudioTranscriptionSession: BuddyStreamingTranscription
     private let onError: (Error) -> Void
 
     private let stateQueue = DispatchQueue(label: "com.learningbuddy.openai.transcription")
-    private let audioPCM16Converter = BuddyPCM16AudioConverter(
+    private let audioPCM16Converter = CappyPCM16AudioConverter(
         targetSampleRate: Double(targetSampleRate)
     )
     private let urlSession: URLSession
@@ -153,7 +153,7 @@ private final class OpenAIAudioTranscriptionSession: BuddyStreamingTranscription
             return
         }
 
-        let wavAudioData = BuddyWAVFileBuilder.buildWAVData(
+        let wavAudioData = CappyWAVFileBuilder.buildWAVData(
             fromPCM16MonoAudio: bufferedPCM16AudioData,
             sampleRate: Self.targetSampleRate
         )

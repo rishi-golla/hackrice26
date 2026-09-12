@@ -1,16 +1,16 @@
 //
-//  CompanionScreenCaptureUtility.swift
+//  CappyScreenCaptureUtility.swift
 //  leanring-buddy
 //
-//  Standalone screenshot capture for the companion voice flow.
-//  Decoupled from the legacy ScreenshotManager so the companion mode
+//  Standalone screenshot capture for the cappy voice flow.
+//  Decoupled from the legacy ScreenshotManager so the cappy mode
 //  can capture screenshots independently without session state.
 //
 
 import AppKit
 import ScreenCaptureKit
 
-struct CompanionScreenCapture {
+struct CappyScreenCapture {
     let imageData: Data
     let label: String
     let isCursorScreen: Bool
@@ -22,16 +22,16 @@ struct CompanionScreenCapture {
 }
 
 @MainActor
-enum CompanionScreenCaptureUtility {
+enum CappyScreenCaptureUtility {
 
     /// Captures all connected displays as JPEG data, labeling each with
     /// whether the user's cursor is on that screen. This gives the AI
     /// full context across multiple monitors.
-    static func captureAllScreensAsJPEG() async throws -> [CompanionScreenCapture] {
+    static func captureAllScreensAsJPEG() async throws -> [CappyScreenCapture] {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
 
         guard !content.displays.isEmpty else {
-            throw NSError(domain: "CompanionScreenCapture", code: -1,
+            throw NSError(domain: "CappyScreenCapture", code: -1,
                           userInfo: [NSLocalizedDescriptionKey: "No display available for capture"])
         }
 
@@ -67,7 +67,7 @@ enum CompanionScreenCaptureUtility {
             return false
         }
 
-        var capturedScreens: [CompanionScreenCapture] = []
+        var capturedScreens: [CappyScreenCapture] = []
 
         for (displayIndex, display) in sortedDisplays.enumerated() {
             // Use NSScreen.frame (AppKit coordinates, bottom-left origin) so
@@ -110,7 +110,7 @@ enum CompanionScreenCaptureUtility {
                 screenLabel = "screen \(displayIndex + 1) of \(sortedDisplays.count) — secondary screen"
             }
 
-            capturedScreens.append(CompanionScreenCapture(
+            capturedScreens.append(CappyScreenCapture(
                 imageData: jpegData,
                 label: screenLabel,
                 isCursorScreen: isCursorScreen,
@@ -123,7 +123,7 @@ enum CompanionScreenCaptureUtility {
         }
 
         guard !capturedScreens.isEmpty else {
-            throw NSError(domain: "CompanionScreenCapture", code: -2,
+            throw NSError(domain: "CappyScreenCapture", code: -2,
                           userInfo: [NSLocalizedDescriptionKey: "Failed to capture any screen"])
         }
 
