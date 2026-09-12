@@ -92,7 +92,8 @@ export function createNessieSnapshotProvider(options: NessieSnapshotProviderOpti
       const successful = <T>(index: number, label: string): T[] => optional[index].status === 'fulfilled'
         ? records(optional[index].value, label) as T[]
         : [];
-      const accountBills = successful<NessieBill>(0, 'account bills');
+      const accountBills = successful<NessieBill>(0, 'account bills')
+        .filter(candidate => candidate.account_id === nessieAccountId);
       const customerBills = successful<NessieBill>(1, 'customer bills')
         .filter(candidate => candidate.account_id === nessieAccountId);
       const bills = [...new Map(

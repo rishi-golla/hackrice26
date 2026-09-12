@@ -83,8 +83,8 @@ describe('createNessieSnapshotProvider', () => {
 
   it('merges both bill surfaces, filters to the account, and deduplicates by id', async () => {
     const client = fakeClient({
-      getAccountBills: async () => [bill('shared'), bill('account-only')],
-      getCustomerBills: async () => [bill('shared'), bill('customer-only'), bill('other-account', 'other')],
+      getAccountBills: async () => [bill('shared'), bill('account-only'), bill('foreign-account-bill', 'other')],
+      getCustomerBills: async () => [bill('shared'), bill('customer-only'), bill('foreign-customer-bill', 'other')],
       getAccountDeposits: async () => [],
     });
 
