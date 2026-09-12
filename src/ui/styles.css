@@ -9,6 +9,16 @@
 * { box-sizing: border-box; }
 button, input { font: inherit; }
 button { cursor: pointer; }
+.verification { margin-top: 14px; padding: 14px 0; border-bottom: 1px solid #334155; }
+.verification h2 { margin: 0 0 8px; font-size: 16px; }
+.verification p { margin: 0 0 10px; line-height: 1.5; }
+.verification small { display: block; color: #cbd5e1; line-height: 1.5; }
+.verification-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.verification button:disabled { opacity: .65; cursor: wait; }
+.verification button:focus-visible { outline: 2px solid #93c5fd; outline-offset: 3px; }
+.answer { line-height: 1.5; }
+.card .voice-row { flex-wrap: wrap; }
+.card .voice-row > small { flex: 1; min-width: 120px; }
 
 .bodyguard-surface {
   position: fixed;
