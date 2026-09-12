@@ -3,6 +3,11 @@ import type { FlickyBridge } from '../shared/contracts';
 
 const invoke = (channel: string, ...args: unknown[]) => ipcRenderer.invoke(`flicky:${channel}`, ...args);
 const bridge: FlickyBridge = {
+  login: (email, password) => invoke('login', { email, password }),
+  logout: () => invoke('logout'),
+  getSession: () => invoke('getSession'),
+  getProfile: () => invoke('getProfile'),
+  updateProfile: profile => invoke('updateProfile', profile),
   initial: () => invoke('initial'), monitor: enabled => invoke('monitor', enabled),
   selectDisplay: id => invoke('display', id), capture: () => invoke('capture'),
   turn: (text, candidateId, allowStale) => invoke('turn', { text, candidateId, allowStale }),
