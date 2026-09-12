@@ -1,13 +1,13 @@
 //
-//  leanring_buddyUITests.swift
-//  leanring-buddyUITests
+//  CappyUITests.swift
+//  CappyUITests
 //
 //  Created by thorfinn on 3/2/26.
 //
 
 import XCTest
 
-final class leanring_buddyUITests: XCTestCase {
+final class CappyUITests: XCTestCase {
 
     override func setUpWithError() throws {
         // Put setup code here. This method is called before the invocation of each test method in the class.

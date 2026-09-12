@@ -1,13 +1,13 @@
 //
-//  leanring_buddyUITestsLaunchTests.swift
-//  leanring-buddyUITests
+//  CappyUITestsLaunchTests.swift
+//  CappyUITests
 //
 //  Created by thorfinn on 3/2/26.
 //
 
 import XCTest
 
-final class leanring_buddyUITestsLaunchTests: XCTestCase {
+final class CappyUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true

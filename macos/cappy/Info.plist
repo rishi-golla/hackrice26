@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>NSScreenCaptureUsageDescription</key>
-	<string>Flicky reads checkout totals locally when you enable screen analysis.</string>
+	<string>Cappy reads checkout totals locally when you enable screen analysis.</string>
 	<key>SUFeedURL</key>
 	<string>https://raw.githubusercontent.com/julianjear/makesomething-mac-app/main/appcast.xml</string>
 	<key>SUPublicEDKey</key>
