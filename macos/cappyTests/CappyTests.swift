@@ -1,14 +1,14 @@
 //
-//  leanring_buddyTests.swift
-//  leanring-buddyTests
+//  CappyTests.swift
+//  CappyTests
 //
 //  Created by thorfinn on 3/2/26.
 //
 
 import Testing
-@testable import leanring_buddy
+@testable import cappy
 
-struct leanring_buddyTests {
+struct CappyTests {
 
     @Test func firstPermissionRequestUsesSystemPromptOnly() async throws {
         let presentationDestination = WindowPositionManager.permissionRequestPresentationDestination(

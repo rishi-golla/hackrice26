@@ -2,8 +2,11 @@ import 'dotenv/config';
 import { readFile } from 'node:fs/promises';
 import { buildServer } from './server';
 import { createSpeechDependencies } from './speech-config';
+import { createDemoAuthProvider } from './auth';
 import { demoSnapshot } from '../fixtures/demo';
 import type { Snapshot } from '../domain/types';
+import { createHttpModelProvider } from './providers/model';
+import { createDeterministicFormatter } from './model';
 
 async function main() {
   const mode = process.env.FLICKY_DATA_MODE ?? 'synthetic';
@@ -16,16 +19,16 @@ async function main() {
   }
   const sample = recording ?? demoSnapshot();
   const speech = createSpeechDependencies();
+  const model = process.env.CAPPY_MODEL_BASE_URL && process.env.CAPPY_MODEL
+    ? createHttpModelProvider()
+    : createDeterministicFormatter();
   const server = buildServer({ sessionToken: process.env.FLICKY_SESSION_TOKEN ?? '', accountIds: [sample.accountId], mode }, {
     async read(accountId) {
       if (accountId !== sample.accountId) throw new Error('Unknown account');
       // Fixtures retain their stated date/asOf; never relabel recorded data as fresh live data.
       return structuredClone(recording ?? demoSnapshot());
     },
-  }, {
-    transcribe: speech.transcribe,
-    synthesize: speech.synthesize,
-  });
+  }, { auth: createDemoAuthProvider(), model, transcribe: speech.transcribe, synthesize: speech.synthesize });
   const address = await server.listen({ host: '127.0.0.1', port: 0 });
   process.stdout.write(JSON.stringify({ port: Number(new URL(address).port), accountId: sample.accountId, mode,
     capabilities: { router: true, ...speech.capabilities, financialActions: false } }) + '\n');

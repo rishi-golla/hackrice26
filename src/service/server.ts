@@ -1,9 +1,13 @@
 import Fastify from 'fastify';
-import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { SnapshotStore, type SnapshotProvider } from './snapshot';
 import { forecast } from '../domain/forecast';
 import { createConversationManager } from './conversation/controller';
+import { createDemoAuthProvider, type CappyAuthProvider, type CappySession } from './auth';
+import { ProfileStore } from './profile';
+import { assertAccountAccess } from './policy';
+import { createCappyToolRegistry, type CappyToolRegistry } from './tools';
+import { createDeterministicFormatter, type CappyModelProvider } from './model';
 
 export interface ServerConfig {
   sessionToken: string;
@@ -14,6 +18,10 @@ export interface ServiceDependencies {
   conversation?: ReturnType<typeof createConversationManager>;
   transcribe?: (audio: Uint8Array, mime: string, durationMs: number) => Promise<string>;
   synthesize?: (text: string) => Promise<Uint8Array>;
+  auth?: CappyAuthProvider;
+  profiles?: ProfileStore;
+  tools?: CappyToolRegistry;
+  model?: CappyModelProvider;
 }
 const cents = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const identifier = z.string().min(1).max(120);
@@ -25,14 +33,22 @@ export function buildServer(config: ServerConfig, provider: SnapshotProvider, de
   const server = Fastify({ logger: false, bodyLimit: 14 * 1024 * 1024 });
   const store = new SnapshotStore(provider);
   const conversation = deps.conversation ?? createConversationManager();
-  const sessions = new Map<string, string>();
+  const auth = deps.auth ?? createDemoAuthProvider();
+  const profiles = deps.profiles ?? new ProfileStore();
+  const tools = deps.tools ?? createCappyToolRegistry({ snapshot: accountId => store.get(accountId, false) });
+  const model = deps.model ?? createDeterministicFormatter();
+  const authenticated = new WeakMap<object, CappySession>();
+  const validServiceToken = (value: string | undefined) => value === `Bearer ${config.sessionToken}`;
   server.addHook('onRequest', async (request, reply) => {
     if (request.url === '/health' && request.method === 'GET') return;
-    const expected = Buffer.from(`Bearer ${config.sessionToken}`);
-    const actual = Buffer.from(request.headers.authorization ?? '');
-    if (request.headers.origin || actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
-      return reply.code(401).send({ error: 'Unauthorized' });
+    if (request.headers.origin) return reply.code(401).send({ error: 'Unauthorized' });
+    if (request.url === '/auth/login' && request.method === 'POST') {
+      if (!validServiceToken(request.headers.authorization)) return reply.code(401).send({ error: 'Unauthorized' });
+      return;
     }
+    const token = request.headers.authorization?.startsWith('Bearer ') ? request.headers.authorization.slice(7) : '';
+    try { authenticated.set(request, await auth.validate(token)); }
+    catch { return reply.code(401).send({ error: 'Unauthorized' }); }
   });
   server.setErrorHandler((error, _request, reply) => {
     if (error instanceof z.ZodError || error instanceof RangeError || error instanceof TypeError) {
@@ -46,29 +62,50 @@ export function buildServer(config: ServerConfig, provider: SnapshotProvider, de
     if (!config.accountIds.includes(id)) throw Object.assign(new Error('Unknown account'), { statusCode: 403 });
     return id;
   }
-  function session(id: string) {
-    const accountId = sessions.get(id);
-    if (!accountId) throw Object.assign(new Error('Unknown session'), { statusCode: 403 });
-    return account(accountId);
+  function current(request: object) { const value = authenticated.get(request); if (!value) throw Object.assign(new Error('Unknown session'), { statusCode: 401 }); return value; }
+  function accountFor(request: object, id: string) { return assertAccountAccess(current(request), account(id)); }
+  function conversationSession(id: string) {
+    const value = conversation.getSession(id);
+    if (!value) throw Object.assign(new Error('Unknown conversation session'), { statusCode: 403 });
+    return value.accountId;
   }
   server.get('/health', async () => ({ ok: true }));
+  server.post('/auth/login', async request => {
+    const body = z.object({ email: z.string().email(), password: z.string().min(1).max(200) }).strict().parse(request.body);
+    return auth.login(body.email, body.password);
+  });
+  server.post('/auth/logout', async request => { await auth.logout(current(request).id); return { ok: true }; });
+  server.get('/auth/session', async request => current(request));
+  server.get('/profile', async request => {
+    const session = current(request); const query = z.object({ accountId: identifier.optional() }).strict().parse(request.query);
+    if (query.accountId) assertAccountAccess(session, query.accountId);
+    return profiles.get(session.userId, session.accountId);
+  });
+  server.put('/profile', async request => {
+    const session = current(request); const body = z.object({ accountId: identifier.optional(), reserveCents: z.number().int().nonnegative(), riskStyle: z.enum(['calm', 'direct', 'detailed']), language: z.literal('en-US'), monitoringEnabled: z.boolean() }).strict().parse(request.body);
+    if (body.accountId) assertAccountAccess(session, body.accountId);
+    return profiles.update(session.userId, session.accountId, body);
+  });
   server.get('/snapshot', async request => {
     const query = z.object({ accountId: identifier, refresh: z.enum(['true', 'false']).optional() }).strict().parse(request.query);
-    return store.get(account(query.accountId), query.refresh === 'true');
+    return store.get(accountFor(request, query.accountId), query.refresh === 'true');
+  });
+  server.post('/tool', async request => {
+    const body = z.object({ name: identifier, input: z.unknown() }).strict().parse(request.body);
+    const session = current(request);
+    return tools.call(body.name, body.input, { session, profile: profiles.get(session.userId, session.accountId) });
   });
   server.post('/forecast', async (request, reply) => {
     const body = z.object({ accountId: identifier, purchaseCents: cents, reserveCents: cents, allowStale: z.boolean().optional() }).strict().parse(request.body);
-    const snapshot = await store.get(account(body.accountId), true);
+    const snapshot = await store.get(accountFor(request, body.accountId), true);
     if (snapshot.stale && !body.allowStale) return reply.code(409).send({ error: 'Snapshot is stale. Confirm a stale preview to continue.' });
     return forecast(snapshot, body.purchaseCents, body.reserveCents);
   });
   server.post('/session', async request => {
     const body = z.object({ accountId: identifier }).strict().parse(request.body);
     // One desktop session per account; creating another invalidates the old memory.
-    const accountId = account(body.accountId);
-    for (const [id, existing] of sessions) if (existing === accountId) { conversation.forget(id); sessions.delete(id); }
+    const accountId = accountFor(request, body.accountId);
     const result = conversation.createSession(accountId, config.mode);
-    sessions.set(result.id, accountId);
     return { sessionId: result.id };
   });
   server.post('/candidate', async request => {
@@ -76,23 +113,31 @@ export function buildServer(config: ServerConfig, provider: SnapshotProvider, de
       id: identifier, label: z.string().min(1).max(120), cents, date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       origin: z.enum(['screen', 'spoken', 'typed']), confirmed: z.boolean(),
     }).strict() }).strict().parse(request.body);
-    session(body.sessionId);
+    const authSession = current(request); if (conversationSession(body.sessionId) !== authSession.accountId) throw Object.assign(new Error('Unknown account or session'), { statusCode: 403 });
     conversation.registerCandidate(body.sessionId, body.purchase);
     return { ok: true };
   });
   server.post('/turn', async request => {
     const body = z.object({ sessionId: identifier, turnId: identifier, text: z.string().trim().min(1).max(2000),
       candidateId: identifier.optional(), allowStale: z.boolean().optional(), hover: z.boolean().optional() }).strict().parse(request.body);
-    const snapshot = await store.get(session(body.sessionId), !body.hover);
-    return conversation.turn(body, snapshot);
+    const authSession = current(request); if (conversationSession(body.sessionId) !== authSession.accountId) throw Object.assign(new Error('Unknown account or session'), { statusCode: 403 });
+    const snapshot = await store.get(authSession.accountId, !body.hover);
+    const reply = await conversation.turn(body, snapshot);
+    // The formatter is deliberately downstream of deterministic tool/forecast results.
+    // It may shape wording, but it never supplies financial facts.
+    if (model && snapshot.mode === 'synthetic' && reply.state === 'idle') {
+      const formatted = await model.complete({ system: 'Format the grounded Cappy answer without changing facts.', user: reply.text, tools: [] });
+      return { ...reply, text: formatted.text || reply.text };
+    }
+    return reply;
   });
-  server.post('/cancel', async request => { const { sessionId } = sessionInput.parse(request.body); session(sessionId); conversation.cancel(sessionId); return { ok: true }; });
-  server.post('/forget', async request => { const { sessionId } = sessionInput.parse(request.body); session(sessionId); conversation.forget(sessionId); return { ok: true }; });
+  server.post('/cancel', async request => { const { sessionId } = sessionInput.parse(request.body); if (conversationSession(sessionId) !== current(request).accountId) throw Object.assign(new Error('Unknown account or session'), { statusCode: 403 }); conversation.cancel(sessionId); return { ok: true }; });
+  server.post('/forget', async request => { const { sessionId } = sessionInput.parse(request.body); if (conversationSession(sessionId) !== current(request).accountId) throw Object.assign(new Error('Unknown account or session'), { statusCode: 403 }); conversation.forget(sessionId); return { ok: true }; });
   server.post('/transcribe', async (request, reply) => {
     const body = z.object({ sessionId: identifier, audio: z.string().max(14 * 1024 * 1024),
       mime: z.enum(['audio/webm', 'audio/webm;codecs=opus', 'audio/ogg', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/wav']),
       durationMs: z.number().positive().max(30000) }).strict().parse(request.body);
-    session(body.sessionId);
+    if (conversationSession(body.sessionId) !== current(request).accountId) throw Object.assign(new Error('Unknown account or session'), { statusCode: 403 });
     if (!deps.transcribe) return reply.code(503).send({ error: 'Transcription is unavailable. Type your question.' });
     if (!/^[A-Za-z0-9+/]*={0,2}$/.test(body.audio)) throw new TypeError('Invalid audio');
     const audio = Buffer.from(body.audio, 'base64');
@@ -101,7 +146,7 @@ export function buildServer(config: ServerConfig, provider: SnapshotProvider, de
   });
   server.post('/speak', async (request, reply) => {
     const body = z.object({ sessionId: identifier, replyId: identifier }).strict().parse(request.body);
-    session(body.sessionId);
+    if (conversationSession(body.sessionId) !== current(request).accountId) throw Object.assign(new Error('Unknown account or session'), { statusCode: 403 });
     const answer = conversation.getReply(body.sessionId, body.replyId);
     if (!answer) return reply.code(404).send({ error: 'Reply expired' });
     if (!deps.synthesize) return reply.code(503).send({ error: 'Speech is unavailable' });
