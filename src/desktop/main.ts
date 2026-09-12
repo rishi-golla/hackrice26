@@ -192,6 +192,27 @@ function registerIPC() {
     return new Uint8Array(Buffer.from(result.audio, 'base64'));
   });
   handle('state', cursorStates, next => setState(next));
+  handle('getConvaiToken',
+    z.object({
+      browserUrl: z.string().max(500).optional(),
+      pageTitle: z.string().max(200).optional(),
+      ocrText: z.string().max(2000).optional(),
+      candidateCents: z.number().int().nonnegative().optional(),
+    }).strict(),
+    async value => {
+      const params = new URLSearchParams();
+      if (value.browserUrl) params.set('browserUrl', value.browserUrl);
+      if (value.pageTitle) params.set('pageTitle', value.pageTitle);
+      if (value.ocrText) params.set('ocrText', value.ocrText);
+      if (value.candidateCents !== undefined) params.set('candidateCents', String(value.candidateCents));
+      const result = await request<{ signedUrl: string }>(`/convai/token?${params.toString()}`);
+      return result.signedUrl;
+    },
+  );
+  handle('executeTool',
+    z.object({ name: z.string().min(1).max(120), input: z.record(z.unknown()) }).strict(),
+    value => request('/tool', { name: value.name, input: value.input }),
+  );
 }
 
 app.whenReady().then(async () => {

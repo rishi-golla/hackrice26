@@ -2,7 +2,7 @@ import type { Forecast, DataMode } from '../domain/types';
 
 export type CursorState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'clarifying' | 'error';
 export interface DisplayChoice { id: string; label: string }
-export interface Capabilities { router: boolean; transcription: boolean; speech: boolean; financialActions: false }
+export interface Capabilities { router: boolean; transcription: boolean; speech: boolean; financialActions: false; convai: boolean }
 export interface PublicConfig {
   mode: DataMode; accountId: string; displays: DisplayChoice[]; displayId: string;
   monitoring: boolean; microphoneConsent: boolean; capabilities: Capabilities;
@@ -52,6 +52,15 @@ export type DesktopEvent =
   | { type: 'voice-toggle' }
   | { type: 'cancel' };
 
+/** Context about what the user is currently viewing in their browser / on screen. */
+export interface BrowserContext {
+  browserUrl?: string;
+  pageTitle?: string;
+  ocrText?: string;
+  /** Candidate purchase amount in cents detected via OCR, if any. */
+  candidateCents?: number;
+}
+
 /** Renderer has no generic HTTP, filesystem, shell, or financial-write capability. */
 export interface FlickyBridge {
   login(email: string, password: string): Promise<CappySession>;
@@ -72,6 +81,17 @@ export interface FlickyBridge {
   transcribe(audio: Uint8Array, mimeType: string, durationMs: number): Promise<string>;
   speak(replyId: string): Promise<Uint8Array>;
   state(state: CursorState): Promise<void>;
+  /**
+   * Get a short-lived ElevenLabs Conversational AI signed URL.
+   * The server injects live financial data + screen context into the agent session.
+   * The API key never reaches the renderer.
+   */
+  getConvaiToken(context: BrowserContext): Promise<string>;
+  /**
+   * Execute a registered financial tool (read-only) on behalf of the ConvAI agent.
+   * Authenticated via the active session; account-scoped per policy.
+   */
+  executeTool(name: string, input: Record<string, unknown>): Promise<unknown>;
   onEvent(listener: (event: DesktopEvent) => void): () => void;
   onPassive(listener: (state: PassiveState) => void): () => void;
 }

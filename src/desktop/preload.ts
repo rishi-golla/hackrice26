@@ -15,6 +15,8 @@ const bridge: FlickyBridge = {
   resize: height => invoke('resize', height), consent: enabled => invoke('consent', enabled),
   transcribe: (audio, mimeType, durationMs) => invoke('transcribe', { audio, mimeType, durationMs }),
   speak: replyId => invoke('speak', replyId), state: state => invoke('state', state),
+  getConvaiToken: context => invoke('getConvaiToken', context),
+  executeTool: (name, input) => invoke('executeTool', { name, input }),
   onEvent: listener => {
     const handler = (_: unknown, value: Parameters<typeof listener>[0]) => listener(value);
     ipcRenderer.on('flicky:event', handler);

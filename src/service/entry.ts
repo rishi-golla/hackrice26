@@ -34,15 +34,28 @@ async function main() {
   const model = process.env.CAPPY_MODEL_BASE_URL && process.env.CAPPY_MODEL
     ? createHttpModelProvider()
     : createDeterministicFormatter();
+  const convaiAgentId = process.env.ELEVENLABS_AGENT_ID?.trim() || undefined;
+  const convaiApiKey = convaiAgentId ? process.env.ELEVENLABS_API_KEY?.trim() : undefined;
   const server = buildServer({
     sessionToken: process.env.FLICKY_SESSION_TOKEN ?? '',
     accountIds,
     mode,
     ...(live ? { snapshotTtlMs: readNessieCacheTtlMs(process.env) } : {}),
-  }, provider, { auth: createDemoAuthProvider(), model, transcribe: speech.transcribe, synthesize: speech.synthesize });
+  }, provider, {
+    auth: createDemoAuthProvider(),
+    model,
+    transcribe: speech.transcribe,
+    synthesize: speech.synthesize,
+    convaiAgentId,
+    convaiApiKey,
+  });
   const address = await server.listen({ host: '127.0.0.1', port: 0 });
-  process.stdout.write(JSON.stringify({ port: Number(new URL(address).port), accountId: accountIds[0], mode,
-    capabilities: { router: true, ...speech.capabilities, financialActions: false } }) + '\n');
+  process.stdout.write(JSON.stringify({
+    port: Number(new URL(address).port),
+    accountId: accountIds[0],
+    mode,
+    capabilities: { router: true, ...speech.capabilities, financialActions: false, convai: Boolean(convaiAgentId) },
+  }) + '\n');
   const stop = async () => { await server.close(); process.exit(0); };
   process.on('SIGTERM', stop); process.on('SIGINT', stop);
   process.stdin.resume(); process.stdin.on('end', stop);

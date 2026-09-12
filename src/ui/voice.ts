@@ -1,4 +1,5 @@
-import type { Answer, CursorState, FlickyBridge } from '../shared/contracts';
+import type { Answer, BrowserContext, CursorState, FinancialInsightsView, FlickyBridge } from '../shared/contracts';
+import { Conversation } from '@11labs/client';
 
 export type RecorderLike = {
   state: 'inactive' | 'recording' | string;
@@ -225,4 +226,159 @@ export function createBrowserVoiceRuntime(): VoiceRuntime {
     revokeObjectUrl: url => URL.revokeObjectURL(url),
     now: () => Date.now(),
   };
+}
+
+// ── ElevenLabs Conversational AI Controller ───────────────────────────────────
+
+type ConvAIBridge = Pick<FlickyBridge, 'getConvaiToken' | 'executeTool' | 'state' | 'cancel'>;
+
+export type ConvAICallbacks = {
+  onState?: (state: CursorState) => void;
+  onError?: (message: string) => void;
+  onInsights?: (insights: FinancialInsightsView) => void;
+  onTranscript?: (speaker: 'user' | 'agent', text: string) => void;
+};
+
+/**
+ * Manages an ElevenLabs Conversational AI session.
+ *
+ * Architecture:
+ * 1. `start()` gets a signed URL from the Fastify service (API key stays server-side).
+ *    The server injects the user's live financial snapshot + screen context into the
+ *    agent session as dynamic variables so the agent has full situational awareness.
+ * 2. `@11labs/client` opens a WebSocket to ElevenLabs, handles bidirectional PCM audio,
+ *    VAD, TTS playback, and turn-taking automatically.
+ * 3. When the agent needs data (`get_financial_insights`, `forecast_purchase`), it sends
+ *    a client tool call via WebSocket. We execute it against the local Fastify service
+ *    via IPC, and the tool result also updates the visual dashboard in real time.
+ * 4. `stop()` cleanly ends the ElevenLabs session.
+ */
+export class ConvAIVoiceController {
+  private conversation: Conversation | null = null;
+  private active = false;
+
+  constructor(
+    private readonly bridge: ConvAIBridge,
+    private readonly accountId: string,
+    private readonly reserveCents: number,
+    private readonly callbacks: ConvAICallbacks = {},
+  ) {}
+
+  public isActive(): boolean {
+    return this.active;
+  }
+
+  public async start(context: BrowserContext = {}): Promise<void> {
+    if (this.active) {
+      await this.stop();
+    }
+
+    this.active = true;
+    this.setState('thinking');
+
+    try {
+      // Get a short-lived signed WebSocket URL — the server injects live financial
+      // data and screen context before creating the ElevenLabs session.
+      const signedUrl = await this.bridge.getConvaiToken(context);
+
+      // Build client tools — the agent calls these to get real-time financial data.
+      // Each tool also updates the visual dashboard alongside the voice response.
+      const clientTools: Record<string, (params: Record<string, unknown>) => Promise<string>> = {
+        get_financial_insights: async () => {
+          try {
+            const result = await this.bridge.executeTool('getFinancialInsights', {
+              accountId: this.accountId,
+            }) as { insights?: FinancialInsightsView; accountId?: string; mode?: string; asOf?: string };
+
+            const insights = result.insights ?? (result as unknown as FinancialInsightsView);
+            if (insights && typeof insights.balanceCents === 'number') {
+              this.callbacks.onInsights?.(insights);
+            }
+            return JSON.stringify(result);
+          } catch (error) {
+            return JSON.stringify({ error: error instanceof Error ? error.message : 'Failed to fetch insights' });
+          }
+        },
+
+        forecast_purchase: async (params) => {
+          try {
+            const amountCents = typeof params.amount_cents === 'number' ? params.amount_cents : 0;
+            const result = await this.bridge.executeTool('forecastPurchase', {
+              accountId: this.accountId,
+              purchaseCents: amountCents,
+              reserveCents: this.reserveCents,
+            });
+            return JSON.stringify(result);
+          } catch (error) {
+            return JSON.stringify({ error: error instanceof Error ? error.message : 'Forecast failed' });
+          }
+        },
+      };
+
+      this.conversation = await Conversation.startSession({
+        signedUrl,
+        clientTools,
+
+        onConnect: () => {
+          this.setState('listening');
+        },
+
+        onDisconnect: () => {
+          this.active = false;
+          this.conversation = null;
+          this.setState('idle');
+          void this.bridge.cancel().catch(() => undefined);
+        },
+
+        onError: (message) => {
+          this.callbacks.onError?.(
+            typeof message === 'string' ? message : 'Conversational AI error',
+          );
+          if (this.active) this.setState('error');
+        },
+
+        onModeChange: ({ mode }) => {
+          if (!this.active) return;
+          if (mode === 'speaking') this.setState('speaking');
+          else if (mode === 'listening') this.setState('listening');
+        },
+      } as Parameters<typeof Conversation.startSession>[0]);
+    } catch (error) {
+      this.active = false;
+      this.conversation = null;
+      const message =
+        error instanceof Error
+          ? error.message.includes('not configured')
+            ? 'ConvAI agent not configured. Run: node scripts/setup-elevenlabs-agent.mjs'
+            : error.message
+          : 'Failed to start conversation';
+      this.callbacks.onError?.(message);
+      this.setState('error');
+    }
+  }
+
+  public async stop(): Promise<void> {
+    this.active = false;
+    const conv = this.conversation;
+    this.conversation = null;
+    if (conv) {
+      try {
+        await conv.endSession();
+      } catch {
+        // Ignore errors when ending session
+      }
+    }
+    this.setState('idle');
+    void this.bridge.cancel().catch(() => undefined);
+  }
+
+  public async toggle(context: BrowserContext = {}): Promise<void> {
+    if (this.active) await this.stop();
+    else await this.start(context);
+  }
+
+  private setState(state: CursorState): void {
+    this.callbacks.onState?.(state);
+    void this.bridge.state(state).catch(() => undefined);
+  }
 }

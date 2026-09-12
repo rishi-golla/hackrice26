@@ -9,6 +9,12 @@ import { assertAccountAccess } from './policy';
 import { createCappyToolRegistry, type CappyToolRegistry } from './tools';
 import { createDeterministicFormatter, type CappyModelProvider } from './model';
 import { buildFinancialInsights } from '../domain/insights';
+import {
+  formatFinancialSummary,
+  formatBrowserContext,
+  getConvaiSignedUrl,
+  type BrowserContextInput,
+} from './providers/elevenlabs-agent';
 
 export interface ServerConfig {
   sessionToken: string;
@@ -24,6 +30,10 @@ export interface ServiceDependencies {
   profiles?: ProfileStore;
   tools?: CappyToolRegistry;
   model?: CappyModelProvider;
+  /** ElevenLabs Conversational AI agent ID — enables /convai/token endpoint. */
+  convaiAgentId?: string;
+  /** ElevenLabs API key forwarded from environment — never sent to renderer. */
+  convaiApiKey?: string;
 }
 const cents = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const identifier = z.string().min(1).max(120);
@@ -136,6 +146,37 @@ export function buildServer(config: ServerConfig, provider: SnapshotProvider, de
       return { ...reply, text: formatted.text || reply.text, insights };
     }
     return { ...reply, insights };
+  });
+  // Signed URL for ElevenLabs Conversational AI — API key never reaches the renderer.
+  server.get('/convai/token', async (request, reply) => {
+    if (!deps.convaiAgentId || !deps.convaiApiKey) {
+      return reply.code(503).send({ error: 'Conversational AI not configured. Run: node scripts/setup-elevenlabs-agent.mjs' });
+    }
+    const query = z.object({
+      browserUrl: z.string().max(500).optional(),
+      pageTitle: z.string().max(200).optional(),
+      ocrText: z.string().max(2000).optional(),
+      candidateCents: z.coerce.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+    }).parse(request.query);
+    const authSession = current(request);
+    const snapshot = await store.get(authSession.accountId, false);
+    const profile = profiles.get(authSession.userId, authSession.accountId);
+    const insights = buildFinancialInsights(snapshot, profile.reserveCents);
+    const financialSummary = formatFinancialSummary(insights);
+    const ctx: BrowserContextInput = {
+      browserUrl: query.browserUrl,
+      pageTitle: query.pageTitle,
+      ocrText: query.ocrText,
+      candidateCents: query.candidateCents,
+    };
+    const browserContext = formatBrowserContext(ctx);
+    const signedUrl = await getConvaiSignedUrl({
+      apiKey: deps.convaiApiKey,
+      agentId: deps.convaiAgentId,
+      financialSummary,
+      browserContext,
+    });
+    return { signedUrl };
   });
   server.post('/cancel', async request => { const { sessionId } = sessionInput.parse(request.body); if (conversationSession(sessionId) !== current(request).accountId) throw Object.assign(new Error('Unknown account or session'), { statusCode: 403 }); conversation.cancel(sessionId); return { ok: true }; });
   server.post('/forget', async request => { const { sessionId } = sessionInput.parse(request.body); if (conversationSession(sessionId) !== current(request).accountId) throw Object.assign(new Error('Unknown account or session'), { statusCode: 403 }); conversation.forget(sessionId); return { ok: true }; });
