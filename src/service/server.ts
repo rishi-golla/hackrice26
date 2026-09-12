@@ -3,11 +3,13 @@ import { z } from 'zod';
 import { SnapshotStore, type SnapshotProvider } from './snapshot';
 import { forecast } from '../domain/forecast';
 import { createConversationManager } from './conversation/controller';
+import { isGenericHelpRequest } from './conversation/router';
 import { createDemoAuthProvider, type CappyAuthProvider, type CappySession } from './auth';
 import { ProfileStore } from './profile';
-import { assertAccountAccess } from './policy';
+import { assertAccountAccess, requireVerification } from './policy';
 import { createCappyToolRegistry, type CappyToolRegistry } from './tools';
 import { createDeterministicFormatter, type CappyModelProvider } from './model';
+import { unavailableVerificationGate, VerificationError, type VerificationGate } from './verification';
 
 export interface ServerConfig {
   sessionToken: string;
@@ -22,6 +24,7 @@ export interface ServiceDependencies {
   profiles?: ProfileStore;
   tools?: CappyToolRegistry;
   model?: CappyModelProvider;
+  verification?: VerificationGate;
 }
 const cents = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const identifier = z.string().min(1).max(120);
@@ -35,7 +38,8 @@ export function buildServer(config: ServerConfig, provider: SnapshotProvider, de
   const conversation = deps.conversation ?? createConversationManager();
   const auth = deps.auth ?? createDemoAuthProvider();
   const profiles = deps.profiles ?? new ProfileStore();
-  const tools = deps.tools ?? createCappyToolRegistry({ snapshot: accountId => store.get(accountId, false) });
+  const verification = deps.verification ?? unavailableVerificationGate;
+  const tools = deps.tools ?? createCappyToolRegistry({ snapshot: accountId => store.get(accountId, false), verification });
   const model = deps.model ?? createDeterministicFormatter();
   const authenticated = new WeakMap<object, CappySession>();
   const validServiceToken = (value: string | undefined) => value === `Bearer ${config.sessionToken}`;
@@ -51,6 +55,9 @@ export function buildServer(config: ServerConfig, provider: SnapshotProvider, de
     catch { return reply.code(401).send({ error: 'Unauthorized' }); }
   });
   server.setErrorHandler((error, _request, reply) => {
+    if (error instanceof VerificationError) {
+      return reply.code(error.statusCode).send({ error: error.message, code: error.code });
+    }
     if (error instanceof z.ZodError || error instanceof RangeError || error instanceof TypeError) {
       return reply.code(400).send({ error: 'Invalid request or financial data' });
     }
@@ -64,6 +71,9 @@ export function buildServer(config: ServerConfig, provider: SnapshotProvider, de
   }
   function current(request: object) { const value = authenticated.get(request); if (!value) throw Object.assign(new Error('Unknown session'), { statusCode: 401 }); return value; }
   function accountFor(request: object, id: string) { return assertAccountAccess(current(request), account(id)); }
+  function protectedAccountFor(request: object, id: string) {
+    return requireVerification(current(request), account(id), 'account-sensitive-read', verification);
+  }
   function conversationSession(id: string) {
     const value = conversation.getSession(id);
     if (!value) throw Object.assign(new Error('Unknown conversation session'), { statusCode: 403 });
@@ -78,26 +88,28 @@ export function buildServer(config: ServerConfig, provider: SnapshotProvider, de
   server.get('/auth/session', async request => current(request));
   server.get('/profile', async request => {
     const session = current(request); const query = z.object({ accountId: identifier.optional() }).strict().parse(request.query);
-    if (query.accountId) assertAccountAccess(session, query.accountId);
+    protectedAccountFor(request, query.accountId ?? session.accountId);
     return profiles.get(session.userId, session.accountId);
   });
   server.put('/profile', async request => {
     const session = current(request); const body = z.object({ accountId: identifier.optional(), reserveCents: z.number().int().nonnegative(), riskStyle: z.enum(['calm', 'direct', 'detailed']), language: z.literal('en-US'), monitoringEnabled: z.boolean() }).strict().parse(request.body);
-    if (body.accountId) assertAccountAccess(session, body.accountId);
+    protectedAccountFor(request, body.accountId ?? session.accountId);
     return profiles.update(session.userId, session.accountId, body);
   });
   server.get('/snapshot', async request => {
     const query = z.object({ accountId: identifier, refresh: z.enum(['true', 'false']).optional() }).strict().parse(request.query);
-    return store.get(accountFor(request, query.accountId), query.refresh === 'true');
+    return store.get(protectedAccountFor(request, query.accountId), query.refresh === 'true');
   });
   server.post('/tool', async request => {
     const body = z.object({ name: identifier, input: z.unknown() }).strict().parse(request.body);
     const session = current(request);
+    const input = z.object({ accountId: identifier }).passthrough().parse(body.input);
+    protectedAccountFor(request, input.accountId);
     return tools.call(body.name, body.input, { session, profile: profiles.get(session.userId, session.accountId) });
   });
   server.post('/forecast', async (request, reply) => {
     const body = z.object({ accountId: identifier, purchaseCents: cents, reserveCents: cents, allowStale: z.boolean().optional() }).strict().parse(request.body);
-    const snapshot = await store.get(accountFor(request, body.accountId), true);
+    const snapshot = await store.get(protectedAccountFor(request, body.accountId), true);
     if (snapshot.stale && !body.allowStale) return reply.code(409).send({ error: 'Snapshot is stale. Confirm a stale preview to continue.' });
     return forecast(snapshot, body.purchaseCents, body.reserveCents);
   });
@@ -121,7 +133,9 @@ export function buildServer(config: ServerConfig, provider: SnapshotProvider, de
     const body = z.object({ sessionId: identifier, turnId: identifier, text: z.string().trim().min(1).max(2000),
       candidateId: identifier.optional(), allowStale: z.boolean().optional(), hover: z.boolean().optional() }).strict().parse(request.body);
     const authSession = current(request); if (conversationSession(body.sessionId) !== authSession.accountId) throw Object.assign(new Error('Unknown account or session'), { statusCode: 403 });
-    const snapshot = await store.get(authSession.accountId, !body.hover);
+    if (isGenericHelpRequest(body.text)) return conversation.help(body);
+    const accountId = protectedAccountFor(request, authSession.accountId);
+    const snapshot = await store.get(accountId, !body.hover);
     const reply = await conversation.turn(body, snapshot);
     // The formatter is deliberately downstream of deterministic tool/forecast results.
     // It may shape wording, but it never supplies financial facts.
@@ -146,7 +160,8 @@ export function buildServer(config: ServerConfig, provider: SnapshotProvider, de
   });
   server.post('/speak', async (request, reply) => {
     const body = z.object({ sessionId: identifier, replyId: identifier }).strict().parse(request.body);
-    if (conversationSession(body.sessionId) !== current(request).accountId) throw Object.assign(new Error('Unknown account or session'), { statusCode: 403 });
+    const authSession = current(request); if (conversationSession(body.sessionId) !== authSession.accountId) throw Object.assign(new Error('Unknown account or session'), { statusCode: 403 });
+    protectedAccountFor(request, authSession.accountId);
     const answer = conversation.getReply(body.sessionId, body.replyId);
     if (!answer) return reply.code(404).send({ error: 'Reply expired' });
     if (!deps.synthesize) return reply.code(503).send({ error: 'Speech is unavailable' });

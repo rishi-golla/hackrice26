@@ -10,6 +10,13 @@ export function createConversationManager(options: { router?: IntentRouter; rese
   const now = options.now ?? Date.now; const id = options.id ?? randomUUID; const router = new ValidatedIntentRouter(options.router ?? deterministicRouter); const reserve = options.reserveCents ?? 10_000;
   const clear = (session: ConversationSession) => { session.references = []; session.turns = []; session.lastScenario = []; };
   const clarifying = (request: TurnRequest, text: string): TurnReply => ({ turnId: request.turnId, replyId: id(), state: 'clarifying', text, scenario: [] });
+  function help(request: TurnRequest): TurnReply {
+    const session = sessions.get(request.sessionId); if (!session) throw new Error('Unknown session');
+    session.lastActivityAt = now();
+    const reply = { ...clarifying(request, 'I can evaluate purchase cash flow, explain a forecast, or remember a confirmed purchase.'), state: 'idle' };
+    session.turns = [...session.turns, { role: 'user' as const, text: request.text }, { role: 'assistant' as const, text: reply.text }].slice(-10);
+    return save(session, reply);
+  }
   async function turn(request: TurnRequest, snapshot: Snapshot): Promise<TurnReply> {
     const session = sessions.get(request.sessionId); if (!session) throw new Error('Unknown session');
     const started = canceled.get(session.id) ?? 0; const timestamp = now();
@@ -45,6 +52,6 @@ export function createConversationManager(options: { router?: IntentRouter; rese
   }
   function grounded(request: TurnRequest, scenario: HypotheticalPurchase[], result: ReturnType<typeof evaluateScenario>, explanation: boolean, source: Snapshot): TurnReply { const headline = explanation ? explain(result) : result.status === 'negative' ? `No. ${result.minimumDate} reaches ${money(result.minimumCents)}.` : `Yes, projected low is ${money(result.minimumCents)} on ${result.minimumDate}.`; const qualifier = result.stale ? ` Data is stale as of ${source.asOf}.` : ''; return { turnId: request.turnId, replyId: id(), state: 'idle', text: `${headline}${qualifier} ${result.reasons[0] ?? ''}`.trim(), forecast: result, scenario }; }
   function save(session: ConversationSession, reply: TurnReply) { const own = replies.get(session.id) ?? new Map<string, TurnReply>(); own.set(reply.replyId, reply); replies.set(session.id, own); return reply; }
-  return { createSession(accountId: string, mode: DataMode) { const session = { id: id(), accountId, mode, lastActivityAt: now(), references: [], turns: [], lastScenario: [] } as ConversationSession; sessions.set(session.id, session); candidates.set(session.id, new Map()); replies.set(session.id, new Map()); return session; }, registerCandidate(sessionId: string, purchase: PurchaseRef) { if (!sessions.has(sessionId)) throw new Error('Unknown session'); candidates.get(sessionId)!.set(purchase.id, purchase); }, getSession(sessionId: string) { return sessions.get(sessionId); }, turn, cancel(sessionId: string) { canceled.set(sessionId, (canceled.get(sessionId) ?? 0) + 1); }, forget(sessionId: string) { const session = sessions.get(sessionId); if (session) clear(session); }, getReply(sessionId: string, replyId: string) { return replies.get(sessionId)?.get(replyId); } };
+  return { createSession(accountId: string, mode: DataMode) { const session = { id: id(), accountId, mode, lastActivityAt: now(), references: [], turns: [], lastScenario: [] } as ConversationSession; sessions.set(session.id, session); candidates.set(session.id, new Map()); replies.set(session.id, new Map()); return session; }, registerCandidate(sessionId: string, purchase: PurchaseRef) { if (!sessions.has(sessionId)) throw new Error('Unknown session'); candidates.get(sessionId)!.set(purchase.id, purchase); }, getSession(sessionId: string) { return sessions.get(sessionId); }, help, turn, cancel(sessionId: string) { canceled.set(sessionId, (canceled.get(sessionId) ?? 0) + 1); }, forget(sessionId: string) { const session = sessions.get(sessionId); if (session) clear(session); }, getReply(sessionId: string, replyId: string) { return replies.get(sessionId)?.get(replyId); } };
 }
 function money(cents: number) { return `${cents < 0 ? '-' : ''}$${(Math.abs(cents) / 100).toFixed(2)}`; }

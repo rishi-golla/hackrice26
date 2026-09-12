@@ -7,6 +7,9 @@ export const intentSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('remember'), purchaseId: z.string() }).strict(), z.object({ kind: z.literal('explain') }).strict(), z.object({ kind: z.literal('forget') }).strict(), z.object({ kind: z.literal('clarify'), question: z.string() }).strict(), z.object({ kind: z.literal('unsupported') }).strict(),
 ]);
 const money = (text: string) => { const match = text.match(/\$\s*([0-9][\d,]*(?:\.\d{1,2})?)|\b([0-9][\d,]*(?:\.\d{1,2})?)\s*(?:dollars?|usd)\b/i); const value = match?.[1] ?? match?.[2]; if (value) { try { return parseUSD(`$${value}`); } catch { return undefined; } } const words: Record<string, number> = { ten: 10, twenty: 20, thirty: 30, forty: 40, fifty: 50, one: 1, five: 5 }; const spoken = text.match(new RegExp(`\\b(${Object.keys(words).join('|')})\\s+dollars?\\b`, 'i')); return spoken ? words[spoken[1].toLowerCase()] * 100 : undefined; };
+export function isGenericHelpRequest(text: string): boolean {
+  return /^(?:help|hello|hi|hey|what can you do(?: for me)?|how can you help(?: me)?|how does this work)\??$/i.test(text.trim());
+}
 function dateFrom(text: string, input: RouterInput): string | undefined {
   const iso = text.match(/\b(\d{4}-\d{2}-\d{2})\b/)?.[1]; if (iso) return iso;
   const lower = text.toLowerCase(); if (/\btoday\b/.test(lower)) return input.today;

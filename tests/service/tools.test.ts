@@ -16,4 +16,13 @@ describe('Cappy tool registry', () => {
     await expect(registry.call('forecastPurchase', { accountId: 'demo-checking', purchaseCents: 1.5, reserveCents: 100 }, context)).rejects.toThrow();
     await expect(registry.call('getSnapshot', { accountId: 'demo-checking' }, { ...context, session: { ...context.session, expiresAt: new Date(Date.now() - 1).toISOString() } })).rejects.toMatchObject({ statusCode: 401 });
   });
+  it('does not call the snapshot provider until verification is approved', async () => {
+    let reads = 0;
+    const gated = createCappyToolRegistry({
+      snapshot: async accountId => { reads += 1; return { ...demoSnapshot(), accountId }; },
+      verification: { isConfigured: () => true, isApproved: () => false },
+    });
+    await expect(gated.call('getSnapshot', { accountId: 'demo-checking' }, context)).rejects.toMatchObject({ code: 'verification_required' });
+    expect(reads).toBe(0);
+  });
 });
