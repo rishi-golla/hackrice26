@@ -1,3 +1,11 @@
 /.git
 .DS_Store
 node_modules/
+dist/
+release/
+.env
+.env.local
+*.log
+test-results/
+macos/clicky-worker/.dev.vars
+**/xcuserdata/

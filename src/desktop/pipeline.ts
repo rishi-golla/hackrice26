@@ -1,14 +1,15 @@
-import type { CursorSample } from './coordinates';
+import type { DwellCursorSample } from './coordinates';
+import type { Frame } from './types';
 
 const DWELL_MS = 700;
 const MAX_DWELL_DISTANCE_DIP = 8;
 const COOLDOWN_MS = 5000;
 
-export type CaptureHandler = (sample: CursorSample) => Promise<void> | void;
+export type CaptureHandler = (sample: DwellCursorSample) => Promise<void> | void;
 
 export class DwellPipeline {
   private armed = false;
-  private anchor?: CursorSample;
+  private anchor?: DwellCursorSample;
   private dwellStartedAt?: number;
   private lastCaptureAt?: number;
   private captureInFlight = false;
@@ -25,7 +26,7 @@ export class DwellPipeline {
     this.resetAnchor();
   }
 
-  public async observe(sample: CursorSample): Promise<void> {
+  public async observe(sample: DwellCursorSample): Promise<void> {
     if (!this.armed || this.captureInFlight) {
       return;
     }
@@ -56,7 +57,7 @@ export class DwellPipeline {
     }
   }
 
-  private distanceFromAnchor(sample: CursorSample): number {
+  private distanceFromAnchor(sample: DwellCursorSample): number {
     return Math.hypot(sample.x - this.anchor!.x, sample.y - this.anchor!.y);
   }
 
@@ -65,3 +66,30 @@ export class DwellPipeline {
     this.dwellStartedAt = undefined;
   }
 }
+export type Pipeline = {
+  run(frame: Frame): Promise<void>;
+  invalidate(): void;
+};
+
+export const createPipeline = <T>(extract: (frame: Frame) => Promise<T>, publish: (value: T) => void): Pipeline => {
+  let generation = 0;
+  let busy = false;
+
+  return {
+    async run(frame) {
+      if (busy) return;
+      const runGeneration = generation;
+      busy = true;
+      try {
+        const value = await extract(frame);
+        if (runGeneration === generation) publish(value);
+      } finally {
+        busy = false;
+      }
+    },
+
+    invalidate() {
+      generation += 1;
+    },
+  };
+};

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { extractPurchase, type OcrWord } from '../../src/desktop/ocr/extract';
+import { extractPurchase as extractDesktopPurchase } from '../../src/desktop/extract';
+import type { CursorSample, Frame } from '../../src/desktop/types';
 
 function word(text: string, x: number, y = 0, lineId = `${y}`, confidence = 99): OcrWord {
   return {
@@ -9,6 +11,19 @@ function word(text: string, x: number, y = 0, lineId = `${y}`, confidence = 99):
     box: { x, y, width: Math.max(20, text.length * 8), height: 20 },
   };
 }
+
+const desktopFrame = (capturedAt = 7_000): Frame => ({
+  id: 'checkout-frame',
+  capturedAt,
+  displayId: 'left',
+  bounds: { x: -1_000, y: 0, width: 1_000, height: 500 },
+  workArea: { x: -1_000, y: 0, width: 1_000, height: 480 },
+  imageWidth: 2_000,
+  imageHeight: 1_000,
+  png: new Uint8Array(),
+});
+
+const desktopCursor = (x = -760, y = 210, displayId = 'left'): CursorSample => ({ x, y, displayId, at: 10_000 });
 
 describe('purchase candidate extraction', () => {
   it('does not treat a subtotal as a final total', () => {
@@ -170,5 +185,40 @@ describe('purchase candidate extraction', () => {
       word('$50.00', 110),
       word('Checkout', 0, 50, 'button'),
     ], { x: 20, y: 50 }).reason).toBe('missing-total');
+  });
+});
+
+describe('desktop extraction adapter', () => {
+  it('reuses the image extractor and maps candidate boxes to desktop coordinates', () => {
+    const words = [
+      word('Order', 200, 100, 'total'),
+      word('Total', 255, 100, 'total'),
+      word('$1,234.56', 320, 100, 'total'),
+      word('Place', 400, 400, 'button'),
+      word('Order', 480, 400, 'button'),
+    ];
+
+    expect(extractDesktopPurchase(words, desktopFrame(), desktopCursor(), 10_000)).toEqual({
+      amountCents: 123_456,
+      sourceText: 'Order Total $1,234.56',
+      state: 'preview',
+      reason: 'single-total',
+      totalBox: { x: -840, y: 50, width: 36, height: 10 },
+      buttonBox: { x: -800, y: 200, width: 60, height: 10 },
+    });
+  });
+
+  it('downgrades a late preview to confirmation without discarding the amount', () => {
+    const words = [
+      word('Total', 200, 100, 'total'),
+      word('$20.00', 255, 100, 'total'),
+      word('Checkout', 400, 400, 'button'),
+    ];
+
+    expect(extractDesktopPurchase(words, desktopFrame(6_999), desktopCursor(), 10_000)).toMatchObject({
+      amountCents: 2_000,
+      state: 'confirm',
+      reason: 'low-confidence',
+    });
   });
 });

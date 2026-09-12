@@ -25,6 +25,7 @@ export type TesseractWord = {
 export type TesseractRecognitionResult = {
   data?: {
     words?: TesseractWord[];
+    blocks?: unknown[];
   };
 };
 
@@ -74,8 +75,31 @@ function lineIdFor(word: TesseractWord, index: number): string {
   return `line-${index}`;
 }
 
+function blockWords(blocks: unknown[]): TesseractWord[] {
+  const output: TesseractWord[] = [];
+  blocks.forEach((blockValue, blockIndex) => {
+    const block = blockValue as { paragraphs?: unknown[] };
+    block.paragraphs?.forEach((paragraphValue, paragraphIndex) => {
+      const paragraph = paragraphValue as { lines?: unknown[] };
+      paragraph.lines?.forEach((lineValue, lineIndex) => {
+        const line = lineValue as { words?: unknown[] };
+        line.words?.forEach((wordValue) => {
+          const word = wordValue as Partial<TesseractWord>;
+          output.push({
+            text: String(word.text ?? ''),
+            confidence: Number(word.confidence ?? 0),
+            bbox: word.bbox ?? { x0: NaN, y0: NaN, x1: NaN, y1: NaN },
+            lineId: `${blockIndex}:${paragraphIndex}:${lineIndex}`,
+          });
+        });
+      });
+    });
+  });
+  return output;
+}
+
 function mapWords(result: TesseractRecognitionResult): OcrWord[] {
-  const words = result.data?.words;
+  const words = result.data?.words ?? (result.data?.blocks ? blockWords(result.data.blocks) : undefined);
   if (!Array.isArray(words)) {
     throw new OcrRecognitionError('invalid-result', 'OCR returned no word data');
   }
@@ -102,7 +126,7 @@ function timeout<T>(promise: Promise<T>, timeoutMs: number, onTimeout: () => voi
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
       onTimeout();
-      reject(new OcrRecognitionError('timeout', `OCR did not finish within ${timeoutMs} ms`));
+      reject(new OcrRecognitionError('timeout', `OCR timed out after ${timeoutMs} ms`));
     }, timeoutMs);
 
     promise.then(
