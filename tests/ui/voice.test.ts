@@ -22,12 +22,37 @@ class FakeRecorder implements RecorderLike {
 }
 
 describe('voice turn controller', () => {
+  it('never plays speech that arrives after local access is cleared', async () => {
+    let finish!: (value: Uint8Array) => void;
+    const audio = { play: vi.fn().mockResolvedValue(undefined), pause: vi.fn(), src: '' };
+    const bridge = { transcribe: vi.fn(), turn: vi.fn(),
+      speak: vi.fn(() => new Promise<Uint8Array>(resolve => { finish = resolve; })),
+      state: vi.fn().mockResolvedValue(undefined), cancel: vi.fn().mockResolvedValue(undefined) };
+    const controller = new VoiceTurnController(bridge, fakeRuntime(new FakeRecorder(), audio));
+    const work = controller.readAloud('protected');
+    await vi.waitFor(() => expect(bridge.speak).toHaveBeenCalledOnce());
+    controller.cancelLocal(); finish(new Uint8Array([1])); await work;
+    expect(audio.play).not.toHaveBeenCalled();
+  });
+  it('keeps protected answers silent until Read aloud is explicitly requested', async () => {
+    const recorder = new FakeRecorder();
+    const audio = { play: vi.fn().mockResolvedValue(undefined), pause: vi.fn(), src: '' };
+    const bridge = { transcribe: vi.fn().mockResolvedValue('Can I afford $10?'),
+      turn: vi.fn().mockResolvedValue({ replyId: 'protected', sensitive: true, state: 'idle' }),
+      speak: vi.fn().mockResolvedValue(new Uint8Array([1])), state: vi.fn().mockResolvedValue(undefined), cancel: vi.fn().mockResolvedValue(undefined) };
+    const controller = new VoiceTurnController(bridge, fakeRuntime(recorder, audio));
+    await controller.start(); recorder.emitAudio([1]); controller.stop();
+    await vi.waitFor(() => expect(bridge.turn).toHaveBeenCalledOnce());
+    expect(bridge.speak).not.toHaveBeenCalled(); expect(audio.play).not.toHaveBeenCalled();
+    await controller.readAloud('protected');
+    expect(bridge.speak).toHaveBeenCalledWith('protected'); expect(audio.play).toHaveBeenCalledOnce();
+  });
   it('transcribes released audio, routes the turn, and plays the server reply', async () => {
     const recorder = new FakeRecorder();
     const audio = { play: vi.fn().mockResolvedValue(undefined), pause: vi.fn(), onended: undefined as (() => void) | undefined, src: '' };
     const bridge = {
       transcribe: vi.fn().mockResolvedValue('Can I afford this?'),
-      turn: vi.fn().mockResolvedValue({ replyId: 'reply-1', state: 'idle', text: 'Yes.', turnId: 'turn-1', scenario: [] }),
+      turn: vi.fn().mockResolvedValue({ replyId: 'reply-1', state: 'idle', text: 'Here is how I can help.', turnId: 'turn-1', scenario: [], sensitive: false }),
       speak: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
       state: vi.fn().mockResolvedValue(undefined),
       cancel: vi.fn().mockResolvedValue(undefined),
@@ -50,7 +75,7 @@ describe('voice turn controller', () => {
     const audio = { play: vi.fn().mockResolvedValue(undefined), pause: vi.fn(), onended: undefined as (() => void) | undefined, src: '' };
     const bridge = {
       transcribe: vi.fn().mockResolvedValue('Why?'),
-      turn: vi.fn().mockResolvedValue({ replyId: 'reply-2', state: 'idle', text: 'Because.', turnId: 'turn-2', scenario: [] }),
+      turn: vi.fn().mockResolvedValue({ replyId: 'reply-2', state: 'idle', text: 'Here is how I can help.', turnId: 'turn-2', scenario: [], sensitive: false }),
       speak: vi.fn().mockResolvedValue(new Uint8Array([1])),
       state: vi.fn().mockResolvedValue(undefined),
       cancel: vi.fn().mockResolvedValue(undefined),

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, screen, desktopCapturer, ipcMain, globalShortcut, systemPreferences, powerMonitor } from 'electron';
+import { app, BrowserWindow, Tray, Menu, nativeImage, screen, desktopCapturer, ipcMain, globalShortcut, systemPreferences, powerMonitor, shell } from 'electron';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -10,6 +10,8 @@ import { extractPurchase } from './extract';
 import type { Frame, Rect } from './types';
 import type { Answer, CursorState, DesktopEvent, PublicConfig } from '../shared/contracts';
 import { registerNativeHoldToTalk } from './talk-hotkey';
+import { DesktopVerification } from './verification';
+import { ServiceError } from '../shared/verification';
 
 let card: BrowserWindow;
 let passive: BrowserWindow;
@@ -32,12 +34,15 @@ const cursorStates = z.enum(['idle', 'listening', 'thinking', 'speaking', 'clari
 const shortcut = 'CommandOrControl+Space';
 
 async function request<T>(route: string, body?: unknown, useAuthSession = true): Promise<T> {
+  const own = generation; const owner = authSessionId;
   const response = await fetch(`http://127.0.0.1:${servicePort}${route}`, {
     method: body === undefined ? 'GET' : route.startsWith('/profile') ? 'PUT' : 'POST', headers: { Authorization: `Bearer ${useAuthSession && authSessionId ? authSessionId : token}`, 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(65000),
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(typeof result.error === 'string' ? result.error : 'Request failed');
+  if (own !== generation || owner !== authSessionId) throw new Error('Request canceled.');
+  if (!response.ok) throw new ServiceError(typeof result.error === 'string' ? result.error : 'Request failed',
+    typeof result.code === 'string' ? result.code : undefined, typeof result.requestId === 'string' ? result.requestId : undefined, response.status);
   return result as T;
 }
 function send(event: DesktopEvent) { if (card && !card.isDestroyed()) card.webContents.send('flicky:event', event); }
@@ -56,14 +61,23 @@ async function cancel() {
   if (servicePort && sessionId) await request('/cancel', { sessionId }).catch(() => {});
 }
 const monitor = createMonitor(async () => { await capture(); });
+const verification = new DesktopVerification({ request, open: url => shell.openExternal(url),
+  change: value => { send({ type: 'verification', verification: value }); if (value.state !== 'unlocked') showCard(true); },
+  clear: () => {
+    generation++; captureGeneration++; clearAnnotation(); setState('idle');
+    config.monitoring = false; monitor.setEnabled(false);
+    send({ type: 'cancel' }); send({ type: 'config', config });
+  },
+});
 
 async function analyze(text: string, candidateId?: string, allowStale = false, hover = false) {
-  await cancel();
+  captureGeneration++; clearAnnotation();
   const own = ++generation;
   setState('thinking');
   try {
     const answer = await request<Answer>('/turn', { sessionId, turnId: randomUUID(), text, candidateId, allowStale, hover });
     if (own !== generation) throw new Error('Turn canceled');
+    if (answer.sensitive) verification.allow(answer.verificationExpiresAt!);
     setState(answer.state === 'clarify' || answer.state === 'clarifying' ? 'clarifying' : 'idle');
     send({ type: 'answer', answer });
     return answer;
@@ -72,7 +86,8 @@ async function analyze(text: string, candidateId?: string, allowStale = false, h
     throw error;
   }
 }
-async function capture() {
+async function capture(explicit = false) {
+  if (verification.blocked && !explicit) return;
   if (captureBusy) return;
   captureBusy = true;
   const own = ++captureGeneration;
@@ -116,7 +131,7 @@ async function capture() {
       }
     } else setState('clarifying');
   } catch (error) {
-    if (own === captureGeneration) { setState('error'); send({ type: 'error', message: error instanceof Error ? error.message : 'Screen analysis failed. Enter the price instead.' }); showCard(); }
+    if (own === captureGeneration && !verification.handle(error)) { setState('error'); send({ type: 'error', message: error instanceof Error ? error.message : 'Screen analysis failed. Enter the price instead.' }); showCard(); }
   } finally {
     captureBusy = false;
     if (!quitting) { passive.showInactive(); if (wasCardVisible && !card.isVisible()) card.showInactive(); }
@@ -148,16 +163,28 @@ function secureWindow(window: BrowserWindow) {
   window.webContents.on('will-attach-webview', event => event.preventDefault());
 }
 function handle(name: string, schema: z.ZodTypeAny, action: (value: any) => unknown) {
-  ipcMain.handle(`flicky:${name}`, (event, value) => {
+  ipcMain.handle(`flicky:${name}`, async (event, value) => {
     if (event.sender !== card.webContents || event.senderFrame !== card.webContents.mainFrame) throw new Error('Unauthorized renderer');
-    return action(schema.parse(value));
+    try { return { ok: true, value: await action(schema.parse(value)) }; }
+    catch (error) {
+      verification.handle(error);
+      return { ok: false, error: { message: error instanceof Error ? error.message : 'Action failed.',
+        ...(error instanceof ServiceError ? { code: error.code, requestId: error.requestId, status: error.status } : {}) } };
+    }
   });
 }
 function registerIPC() {
   const empty = z.undefined();
   handle('initial', empty, () => config);
-  handle('login', z.object({ email: z.string().email(), password: z.string().min(1).max(200) }).strict(), async value => { const result = await request<{ id: string; userId: string; accountId: string; issuedAt: string; expiresAt: string }>('/auth/login', value, false); authSessionId = result.id; return result; });
-  handle('logout', empty, async () => { if (authSessionId) await request('/auth/logout', {}); authSessionId = ''; sessionId = ''; });
+  handle('login', z.object({ email: z.string().email(), password: z.string().min(1).max(200) }).strict(), async value => {
+    await verification.lock();
+    if (authSessionId) await request('/auth/logout', {});
+    const result = await request<{ id: string; userId: string; accountId: string; issuedAt: string; expiresAt: string }>('/auth/login', value, false);
+    authSessionId = result.id; config.accountId = result.accountId;
+    sessionId = (await request<{ sessionId: string }>('/session', { accountId: result.accountId })).sessionId;
+    send({ type: 'config', config }); return result;
+  });
+  handle('logout', empty, async () => { await verification.lock(); if (authSessionId) await request('/auth/logout', {}); authSessionId = ''; sessionId = ''; });
   handle('getSession', empty, () => request('/auth/session'));
   handle('getProfile', empty, () => request('/profile'));
   handle('updateProfile', z.object({ reserveCents: z.number().int().nonnegative(), riskStyle: z.enum(['calm', 'direct', 'detailed']), language: z.literal('en-US'), monitoringEnabled: z.boolean() }).strict(), value => request('/profile', value));
@@ -167,15 +194,18 @@ function registerIPC() {
     await cancel(); config.displayId = id; monitor.setEnabled(false); monitor.setEnabled(config.monitoring);
     passive.setBounds(selectedDisplay().bounds); showCard(); return config;
   });
-  handle('capture', empty, () => capture());
+  handle('capture', empty, () => capture(true));
   handle('turn', z.object({ text: z.string().trim().min(1).max(2000), candidateId: z.string().max(120).optional(), allowStale: z.boolean().optional() }).strict(), value => analyze(value.text, value.candidateId, value.allowStale));
   handle('cancel', empty, () => cancel());
-  handle('forget', empty, async () => { await cancel(); await request('/forget', { sessionId }); });
+  handle('forget', empty, async () => { await verification.lock(); await cancel(); await request('/forget', { sessionId }); });
   handle('hide', empty, () => { card.hide(); clearAnnotation(); });
   handle('resize', z.number().int().min(100).max(1000), height => { const area = selectedDisplay().workArea; card.setSize(Math.min(384, area.width), Math.min(height, area.height - 24)); const b = clampCard(card.getBounds(), card.getBounds(), area); card.setPosition(Math.round(b.x), Math.round(b.y)); });
   handle('consent', z.boolean(), async enabled => {
     await cancel();
-    config.microphoneConsent = enabled && (process.platform !== 'darwin' || await systemPreferences.askForMediaAccess('microphone'));
+    const own = generation;
+    const permitted = enabled && (process.platform !== 'darwin' || await systemPreferences.askForMediaAccess('microphone'));
+    if (own !== generation) throw new Error('Microphone request canceled.');
+    config.microphoneConsent = permitted;
     return config;
   });
   handle('transcribe', z.object({ audio: z.instanceof(Uint8Array), mimeType: z.string().max(100), durationMs: z.number().positive().max(30000) }).strict(), async value => {
@@ -190,6 +220,19 @@ function registerIPC() {
     const result = await request<{ audio: string }>('/speak', { sessionId, replyId });
     if (own !== generation) throw new Error('Speech canceled');
     return new Uint8Array(Buffer.from(result.audio, 'base64'));
+  });
+  const requestId = z.string().min(1).max(120);
+  handle('verificationStart', requestId, id => verification.start(id));
+  handle('verificationStatus', requestId, id => verification.status(id));
+  handle('verificationCancel', requestId, id => verification.cancel(id));
+  handle('verificationResume', requestId, async id => {
+    const own = generation;
+    const resumed = await verification.resume(id);
+    if (own !== generation) throw new Error('Request canceled.');
+    if (resumed.operation === '/turn') {
+      const answer = resumed.result as Answer;
+      send({ type: 'answer', answer }); setState(answer.state === 'clarifying' ? 'clarifying' : 'idle');
+    } else if (resumed.operation === '/snapshot') await capture(true);
   });
   handle('state', cursorStates, next => setState(next));
 }
@@ -223,8 +266,8 @@ app.whenReady().then(async () => {
   if (nativeTalkHotkeyCleanup) config.shortcutAvailable = true;
   else config.shortcutAvailable = globalShortcut.register(shortcut, () => { card.hide(); send({ type: 'voice-toggle' }); });
   globalShortcut.register('Escape', () => { void cancel(); card.hide(); });
-  powerMonitor.on('suspend', () => { void cancel(); config.monitoring = false; monitor.setEnabled(false); send({ type: 'config', config }); });
-  powerMonitor.on('lock-screen', () => { void cancel(); config.monitoring = false; monitor.setEnabled(false); send({ type: 'config', config }); });
+  powerMonitor.on('suspend', () => { void verification.lock(); });
+  powerMonitor.on('lock-screen', () => { void verification.lock(); });
   screen.on('display-removed', () => { void cancel(); config.monitoring = false; monitor.setEnabled(false); config.displayId = String(screen.getPrimaryDisplay().id); config.displays = screen.getAllDisplays().map(d => ({ id: String(d.id), label: d.label || 'Display' })); passive.setBounds(selectedDisplay().bounds); send({ type: 'config', config }); });
   setInterval(() => {
     if (quitting || passive.isDestroyed()) return;
@@ -232,7 +275,7 @@ app.whenReady().then(async () => {
     if (annotation && (Date.now() >= annotationExpires || point.x < annotation.x - 80 || point.x > annotation.x + annotation.width + 80 || point.y < annotation.y - 80 || point.y > annotation.y + annotation.height + 80)) clearAnnotation();
     passive.webContents.send('flicky:passive', { cursor: { x: point.x - display.bounds.x, y: point.y - display.bounds.y }, state, monitoring: config.monitoring,
       annotation: annotation ? { ...annotation, x: annotation.x - display.bounds.x, y: annotation.y - display.bounds.y } : undefined });
-    if (config.monitoring && String(screen.getDisplayNearestPoint(point).id) === config.displayId) monitor.sample({ ...point, displayId: config.displayId, at: Date.now() });
+    if (config.monitoring && !verification.blocked && String(screen.getDisplayNearestPoint(point).id) === config.displayId) monitor.sample({ ...point, displayId: config.displayId, at: Date.now() });
   }, 100).unref();
   passive.showInactive();
 }).catch(error => { console.error('Flicky startup failed:', error instanceof Error ? error.message : 'Unknown failure'); app.quit(); });

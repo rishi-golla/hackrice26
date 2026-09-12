@@ -7,6 +7,8 @@ import { demoSnapshot } from '../fixtures/demo';
 import type { Snapshot } from '../domain/types';
 import { createHttpModelProvider } from './providers/model';
 import { createDeterministicFormatter } from './model';
+import { createPersonaProvider } from './providers/persona';
+import { VerificationStore } from './verification';
 
 async function main() {
   const mode = process.env.FLICKY_DATA_MODE ?? 'synthetic';
@@ -18,6 +20,13 @@ async function main() {
     if (recording?.mode !== mode) throw new Error('Recorded snapshot must be labeled recorded-sandbox.');
   }
   const sample = recording ?? demoSnapshot();
+  const personaConfig = { apiKey: process.env.PERSONA_API_KEY ?? '', templateId: process.env.PERSONA_INQUIRY_TEMPLATE_ID ?? '',
+    environmentId: process.env.PERSONA_ENVIRONMENT_ID ?? '' };
+  const ttlSeconds = Number(process.env.PERSONA_VERIFICATION_TTL_SECONDS ?? 300);
+  const configured = personaConfig.apiKey.length > 0 && /^itmpl_[A-Za-z0-9]+$/.test(personaConfig.templateId) &&
+    /^env_[A-Za-z0-9]+$/.test(personaConfig.environmentId) && Number.isFinite(ttlSeconds) && ttlSeconds > 0;
+  const verification = new VerificationStore({ templateId: personaConfig.templateId, environmentId: personaConfig.environmentId, environment: process.env.PERSONA_ENVIRONMENT,
+    mode, ttlMs: ttlSeconds * 1000, provider: configured ? createPersonaProvider(personaConfig) : undefined });
   const speech = createSpeechDependencies();
   const model = process.env.CAPPY_MODEL_BASE_URL && process.env.CAPPY_MODEL
     ? createHttpModelProvider()
@@ -28,7 +37,7 @@ async function main() {
       // Fixtures retain their stated date/asOf; never relabel recorded data as fresh live data.
       return structuredClone(recording ?? demoSnapshot());
     },
-  }, { auth: createDemoAuthProvider(), model, transcribe: speech.transcribe, synthesize: speech.synthesize });
+  }, { auth: createDemoAuthProvider(), verification, model, transcribe: speech.transcribe, synthesize: speech.synthesize });
   const address = await server.listen({ host: '127.0.0.1', port: 0 });
   process.stdout.write(JSON.stringify({ port: Number(new URL(address).port), accountId: sample.accountId, mode,
     capabilities: { router: true, ...speech.capabilities, financialActions: false } }) + '\n');

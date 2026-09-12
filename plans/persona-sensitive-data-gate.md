@@ -25,10 +25,13 @@ For local development, the developer may manually add the following variables to
 PERSONA_API_KEY=<developer-supplied sandbox API key>
 PERSONA_INQUIRY_TEMPLATE_ID=<configured inquiry template ID>
 PERSONA_ENVIRONMENT=sandbox
+PERSONA_ENVIRONMENT_ID=<sandbox environment ID starting with env_>
 PERSONA_VERIFICATION_TTL_SECONDS=300
 ```
 
 `PERSONA_ENVIRONMENT` is an application policy setting; use an environment-specific Persona key and verify the actual inquiry environment. Do not assume this string changes the Persona API environment. Pin the supported Persona API version explicitly in the adapter after checking current documentation.
+
+Implementation pins API version `2025-10-27` and validates the authoritative `Persona-Environment-Id` response header against `PERSONA_ENVIRONMENT_ID`. This first implementation only permits Sandbox verification with synthetic data; production/recorded/live access stays disabled. The environment ID is not a secret; obtain the Sandbox ID from Persona's dashboard.
 
 The key is read only by the service adapter. Never use a `VITE_` prefix, return it in public config, log it, send it over preload, or bundle it into Electron or Swift assets. Keep example documentation credential-free. Do not overwrite an existing `.env` by copying an example over it.
 
@@ -87,40 +90,44 @@ Files: `src/service/policy.ts`, `src/service/server.ts`, `src/service/tools.ts`,
 
 Files: `src/service/providers/persona.ts`, `src/service/verification.ts`, `src/service/server.ts`, `src/service/entry.ts`, tests.
 
-- [ ] Verify current Persona create/retrieve inquiry schemas and hosted-link generation against official documentation. Do not invent API request fields.
+- [x] Verify current Persona create/retrieve inquiry schemas and hosted-link generation against official documentation. Do not invent API request fields.
 - [ ] Configure an inquiry template with the identity checks appropriate to the intended assurance level and an approval workflow; use sandbox identities for testing.
-- [ ] Add authenticated `POST /verification/start` accepting only a pending-request ID. Backend chooses user, reference ID, account, template, and environment.
-- [ ] Reuse an active inquiry for repeated clicks in the same session/request. Apply a small per-session creation limit and reject foreign or expired request IDs.
-- [ ] Add authenticated `GET /verification/status?requestId=...`. Resolve inquiry IDs from server storage; do not accept arbitrary client-supplied inquiry approvals.
-- [ ] Poll at most once per two seconds per active inquiry, coalesce concurrent checks, and stop automatically after two minutes. Show a pending/retry state if review takes longer; a polling timeout is not necessarily a Persona inquiry expiry.
-- [ ] Verify the authoritative decision and binding before minting a grant. Validate unknown statuses and malformed responses fail closed. Cap grant expiry at auth-session expiry.
-- [ ] Add cancel and resume endpoints for the bound pending request. Resume reruns the authorized operation and consumes the request once; repeat resumes must not execute it again.
-- [ ] Return only safe UI status and the hosted URL when needed. Never log the full hosted link, provider response, credentials, or identity fields.
+- [x] Add authenticated `POST /verification/start` accepting only a pending-request ID. Backend chooses user, reference ID, account, template, and environment.
+- [x] Reuse an active inquiry for repeated clicks in the same session/request. Apply a small per-session creation limit and reject foreign or expired request IDs.
+- [x] Add authenticated `GET /verification/status?requestId=...`. Resolve inquiry IDs from server storage; do not accept arbitrary client-supplied inquiry approvals.
+- [x] Poll at most once per two seconds per active inquiry, coalesce concurrent checks, and stop automatically after two minutes. Show a pending/retry state if review takes longer; a polling timeout is not necessarily a Persona inquiry expiry.
+- [x] Verify the authoritative decision and binding before minting a grant. Validate unknown statuses and malformed responses fail closed. Cap grant expiry at auth-session expiry.
+- [x] Add cancel and resume endpoints for the bound pending request. Resume reruns the authorized operation and consumes the request once; repeat resumes must not execute it again.
+- [x] Return only safe UI status and the hosted URL when needed. Never log the full hosted link, provider response, credentials, or identity fields.
+
+Dashboard template configuration and real hosted-flow testing remain developer steps. Credentials/environment files were not inspected. Automated tests use injected providers only.
 
 ## Task 3 — Wire Electron and the cursor UI
 
 Files: `src/shared/contracts.ts`, `src/desktop/preload.ts`, `src/desktop/main.ts`, `src/ui/VerificationPrompt.tsx`, `src/ui/main.tsx`, `src/ui/voice.ts`, focused UI tests.
 
-- [ ] Add narrow typed methods/events for verification start, status, cancel, and resume. Preserve sender validation and runtime IPC schemas.
-- [ ] Preserve structured service errors through `request()` in Electron; the current generic `Error(message)` discards machine-readable codes.
-- [ ] Open only backend-issued HTTPS Persona hosted URLs after explicit user activation. Validate the exact hostname against official supported hosts; expose no arbitrary URL-opening IPC method.
-- [ ] Implement a small prompt component with locked, pending, approved, retry, and canceled states. Reuse existing styling and buttons.
-- [ ] Pause automatic account previews while locked; a hover may show the verification prompt but must never repeatedly create inquiries or open browser windows.
-- [ ] Handle the protected snapshot request used by capture itself. OCR may remain local, but capture cannot fetch financial data before the gate.
-- [ ] Suppress automatic TTS for protected replies. A voice request receiving `verification_required` displays the prompt and may speak only a generic verification instruction.
-- [ ] Add explicit Read aloud for a verified sensitive reply. `/speak` rechecks reply ownership, account, session, sensitivity, and current grant before provider upload; reject expired grants even for old reply IDs.
-- [ ] Hide protected content and cancel pending work/audio at grant expiry, logout, account change, and lock. Check generation/authorization again after asynchronous work and before publishing results.
+- [x] Add narrow typed methods/events for verification start, status, cancel, and resume. Preserve sender validation and runtime IPC schemas.
+- [x] Preserve structured service errors through `request()` in Electron; the current generic `Error(message)` discards machine-readable codes.
+- [x] Open only backend-issued HTTPS Persona hosted URLs after explicit user activation. Validate the exact hostname against official supported hosts; expose no arbitrary URL-opening IPC method.
+- [x] Implement a small prompt component with locked, pending, approved, retry, and canceled states. Reuse existing styling and buttons.
+- [x] Pause automatic account previews while locked; a hover may show the verification prompt but must never repeatedly create inquiries or open browser windows.
+- [x] Handle the protected snapshot request used by capture itself. OCR may remain local, but capture cannot fetch financial data before the gate.
+- [x] Suppress automatic TTS for protected replies. A voice request receiving `verification_required` displays the prompt and may speak only a generic verification instruction.
+- [x] Add explicit Read aloud for a verified sensitive reply. `/speak` rechecks reply ownership, account, session, sensitivity, and current grant before provider upload; reject expired grants even for old reply IDs.
+- [x] Hide protected content and cancel pending work/audio at grant expiry, logout, account change, and lock. Check generation/authorization again after asynchronous work and before publishing results.
 
 ## Task 4 — Verification and handoff
 
-- [ ] Unit tests: grant expiry using an injected clock; foreign session/account/request; unknown status; sandbox-versus-production isolation; unavailable provider; duplicate start; cancellation and late approval; one-time resume.
-- [ ] Route tests: direct `/snapshot`, `/forecast`, `/tool`, `/turn`, protected profile, and `/speak` access denied before verification; approved bound session succeeds; another session for the same user does not inherit the grant; logout invalidates it.
-- [ ] Race tests: logout or expiry while Persona, model, or speech request is pending; late response cannot unlock, display, or play protected content.
-- [ ] UI tests: no protected text before verification, Verify opens one inquiry, Continue resumes once, cancellation leaves content locked, sensitive replies do not auto-play.
-- [ ] Run `npm run typecheck`, `npm test`, `npm run build`, and update/run `npm run test:e2e` to cover locked → sandbox approved → permitted → expired. Keep mock approval inside injected test providers only, never a runtime bypass route.
+- [x] Unit tests: grant expiry using an injected clock; foreign session/account/request; unknown status; sandbox-versus-production isolation; unavailable provider; duplicate start; cancellation and late approval; one-time resume.
+- [x] Route tests: direct `/snapshot`, `/forecast`, `/tool`, `/turn`, protected profile, and `/speak` access denied before verification; approved bound session succeeds; another session for the same user does not inherit the grant; logout invalidates it.
+- [x] Race tests: logout or expiry while Persona, model, or speech request is pending; late response cannot unlock, display, or play protected content.
+- [x] UI tests: no protected text before verification, Verify opens one inquiry, Continue resumes once, cancellation leaves content locked, sensitive replies do not auto-play.
+- [x] Run `npm run typecheck`, `npm test`, `npm run build`, and update/run `npm run test:e2e` to cover locked → sandbox approved → permitted → expired. Keep mock approval inside injected test providers only, never a runtime bypass route.
 - [ ] Manually test hosted Sandbox flow with approved, failed, and abandoned inquiries; complete the actual browser flow and verify the backend decision, not merely a mocked UI state.
-- [ ] Record automated results and remaining production identity/enrollment requirements in `docs/verification.md`. Do not claim real identity verification from sandbox tests.
-- [ ] Leave credentials and existing unrelated changes untouched. Review a file-scoped diff; do not stage all workspace changes blindly. Do not push or deploy without an explicit request.
+- [x] Record automated results and remaining production identity/enrollment requirements in `docs/verification.md`. Do not claim real identity verification from sandbox tests.
+- [x] Leave credentials and existing unrelated changes untouched. Review a file-scoped diff; do not stage all workspace changes blindly. Do not push or deploy without an explicit request.
+
+Automated Task 4 checks pass (185 tests across 39 files, HTTP e2e, Chrome renderer smoke, and real sandboxed Electron preload smoke). Actual Hosted Sandbox approval/failure/abandonment is still an unchecked manual acceptance requirement, not covered by these injected-provider tests. See `docs/verification.md` for the handoff.
 
 ## Later production extension — not part of the MVP
 

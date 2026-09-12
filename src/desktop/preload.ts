@@ -1,8 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { FlickyBridge } from '../shared/contracts';
+import type { FlickyTransport } from '../shared/contracts';
 
 const invoke = (channel: string, ...args: unknown[]) => ipcRenderer.invoke(`flicky:${channel}`, ...args);
-const bridge: FlickyBridge = {
+const bridge: FlickyTransport = {
   login: (email, password) => invoke('login', { email, password }),
   logout: () => invoke('logout'),
   getSession: () => invoke('getSession'),
@@ -15,6 +15,10 @@ const bridge: FlickyBridge = {
   resize: height => invoke('resize', height), consent: enabled => invoke('consent', enabled),
   transcribe: (audio, mimeType, durationMs) => invoke('transcribe', { audio, mimeType, durationMs }),
   speak: replyId => invoke('speak', replyId), state: state => invoke('state', state),
+  verificationStart: requestId => invoke('verificationStart', requestId),
+  verificationStatus: requestId => invoke('verificationStatus', requestId),
+  verificationCancel: requestId => invoke('verificationCancel', requestId),
+  verificationResume: requestId => invoke('verificationResume', requestId),
   onEvent: listener => {
     const handler = (_: unknown, value: Parameters<typeof listener>[0]) => listener(value);
     ipcRenderer.on('flicky:event', handler);
