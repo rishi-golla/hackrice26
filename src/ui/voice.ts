@@ -173,7 +173,13 @@ export class VoiceTurnController {
       const transcript = await this.bridge.transcribe(audio, mimeType, durationMs);
       if (generation !== this.generation) return;
       if (!transcript.trim()) throw new Error('No speech was detected. You can type your question instead.');
-      const answer = await this.bridge.turn(transcript, candidateId);
+      this.suppressNextHostCancel = true;
+      let answer: Answer;
+      try {
+        answer = await this.bridge.turn(transcript, candidateId);
+      } finally {
+        this.suppressNextHostCancel = false;
+      }
       if (generation !== this.generation) return;
       this.setState(answer.state === 'clarify' || answer.state === 'clarifying' ? 'clarifying' : 'speaking');
       const responseAudio = await this.bridge.speak(answer.replyId);

@@ -84,6 +84,32 @@ describe('voice turn controller', () => {
     expect(controller.isRecording()).toBe(true);
     controller.stop();
   });
+
+  it('does not let the turn reset cancel its voice response', async () => {
+    const recorder = new FakeRecorder();
+    const audio = { play: vi.fn().mockResolvedValue(undefined), pause: vi.fn(), onended: undefined as (() => void) | undefined, src: '' };
+    let controller: VoiceTurnController;
+    const bridge = {
+      transcribe: vi.fn().mockResolvedValue('Can I afford this?'),
+      turn: vi.fn().mockImplementation(async () => {
+        controller.handleHostCancel();
+        return { replyId: 'reply-reset', state: 'idle', text: 'Yes.', turnId: 'turn-reset', scenario: [] };
+      }),
+      speak: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
+      state: vi.fn().mockResolvedValue(undefined),
+      cancel: vi.fn().mockResolvedValue(undefined),
+    };
+    controller = new VoiceTurnController(bridge, fakeRuntime(recorder, audio));
+
+    await controller.start();
+    controller.handleHostCancel();
+    recorder.emitAudio([1, 2, 3]);
+    controller.stop();
+    await vi.waitFor(() => expect(bridge.turn).toHaveBeenCalledOnce());
+
+    await vi.waitFor(() => expect(bridge.speak).toHaveBeenCalledWith('reply-reset'));
+    expect(audio.play).toHaveBeenCalledOnce();
+  });
 });
 
 function fakeRuntime(recorder: FakeRecorder, audio: { play: () => Promise<void>; pause: () => void; onended?: (() => void) | undefined; src: string }): VoiceRuntime {

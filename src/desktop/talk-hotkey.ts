@@ -79,7 +79,7 @@ type NativeHookModule = {
  */
 export function registerNativeHoldToTalk(handlers: TalkHotkeyHandlers): (() => void) | undefined {
   try {
-    const require = createRequire(import.meta.url);
+    const require = createRequire(__filename);
     const native = require('uiohook-napi') as NativeHookModule;
     const cleanup = registerHoldToTalk(native.uIOhook, {
       controlLeft: native.UiohookKey.Ctrl,
