@@ -1,7 +1,17 @@
 import type { Frame, Rect } from './types';
+export type { Frame, Rect } from './types';
 
 type Point = { x: number; y: number };
 type Size = { width: number; height: number };
+
+export type DwellCursorSample = {
+  displayId: string;
+  x: number;
+  y: number;
+  timestamp: number;
+};
+export type CursorSample = DwellCursorSample;
+export type CardSize = Size;
 
 const requireFiniteRect = (rect: Rect, label: string): void => {
   if (![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) || rect.width < 0 || rect.height < 0) {

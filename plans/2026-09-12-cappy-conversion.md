@@ -203,4 +203,3 @@ export interface CappyElevenLabsGateway { createSession(context: CappyToolContex
 - [ ] Verify Windows status is accurately marked verified or unverified; never infer it from shared tests.
 - [ ] Review diff for Clicky product behavior, secrets, root README changes, and unrelated refactors.
 - [ ] Commit `chore: verify Cappy baseline` only after all checks pass.
-
