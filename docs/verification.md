@@ -6,7 +6,7 @@
 |---|---|
 | `npm install` | Pass. This host's default Node (20.17) is below Electron 40's floor (>=22.12); Node 22.15.1 via nvm is required. |
 | `npm run typecheck` | Pass, no errors. |
-| `npm test` | Pass — **130/130 tests, 32 files.** |
+| `npm test` | Pass — **142/142 tests, 33 files.** |
 | `npm run build` | Pass — emits `dist/main.cjs`, `dist/preload.cjs`, `dist/service.cjs`, renderer assets, bundled OCR language assets. |
 | `npm run test:e2e` | Pass — "service e2e passed" (authenticated local service flow). |
 | `npm run test:stress` | Pass — 1/1 (concurrent snapshot cache). |
@@ -66,16 +66,29 @@ Recognized amount: **$200.00, correct**, from the real "Order total: $200.00" te
 | Denied-permission recovery | Not exercised | Not attempted |
 | Global hold-to-talk (⌘⇧Space) | Registered without error at startup (`config.shortcutAvailable`); press/release not interactively exercised | Not attempted |
 | 100/125/200% scaling, negative origins | Covered by unit tests (`tests/desktop/coordinates.test.ts`); no physical multi-monitor/scaled rig tested | Not attempted |
-| Harmless Nessie read | **Blocked** — no live adapter exists at all; see `docs/provider-contracts.md` | N/A |
+| Harmless Nessie read | **Pass** — implemented and verified live end to end against a real sandbox account; see `docs/provider-contracts.md` | N/A |
 | Speech request (ElevenLabs) | **Blocked** — no credentials in this checkout; provider code is unit-tested but never called live | Same, per teammate 3's report |
 | Schema-only router request | **Pass** — deterministic router, measured above at 0.3ms median | Same |
 | Packaged offline launch | **Pass** — see Task 3 | Not attempted (no artifact built, no device) |
 
-**Summary:** macOS toolchain, build, packaging, and now real screen-OCR all pass at the code level. What remains blocked is purely permission/credential/hardware-gated (live interactive confirmation needs Screen Recording permission on a real device; Nessie/ElevenLabs need credentials; Windows needs a device), each with a working fallback (synthetic mode, typed input).
+**Summary:** macOS toolchain, build, packaging, real screen-OCR, and now live Nessie all pass, verified against real services. What remains blocked is purely permission/credential/hardware-gated (live interactive confirmation needs Screen Recording permission on a real device; ElevenLabs needs credentials; Windows needs a device), each with a working fallback (synthetic mode, typed input).
+
+## Live Nessie integration — implemented and verified end to end
+
+`src/service/providers/nessie.ts` translates a real Capital One Nessie sandbox account into the app's `Snapshot` type. Full contract evidence (endpoints, exact field names, status enums confirmed via a live validation error, dollar-vs-cents units confirmed by round-tripping known values) is in `docs/provider-contracts.md`. Summary of what was actually run, not just written:
+
+1. A real customer, checking account ($800 balance), two bills (rent $600 due 2026-09-14, utilities $80 due 2026-09-16), and one deposit ($1,000 scheduled 2026-09-19) were created via live POST requests to `https://api.nessieisreal.com` — matching the canonical synthetic fixture exactly, so both data modes tell the same demo story.
+2. The actual `dist/service.cjs` was launched with `FLICKY_DATA_MODE=live-sandbox` and real `NESSIE_API_KEY`/`NESSIE_ACCOUNT_ID` values, booted successfully reporting `"mode":"live-sandbox"`.
+3. `GET /snapshot` returned the real translated data: `balanceCents: 80000`, rent/utilities as negative bill events with `recurrence: "monthly"`, the deposit as a positive income event — all through the real HTTP round trip to Nessie, not a mock.
+4. `POST /forecast` with a $200 purchase against that live snapshot returned the exact canonical result: `minimumCents: -8000` on `2026-09-16`, `status: "negative"`, `safeToSpendCents: 2000` — identical to the synthetic-mode result, now sourced from a real bank sandbox.
+5. Along the way, fixed a real, separate bug this integration exposed: `src/service/auth.ts`'s demo auth provider hardcoded every session to `accountId: 'demo-checking'` regardless of which account the server was actually configured for, which silently broke access to any non-default account (live or otherwise). `createDemoAuthProvider` now accepts the actual configured account id; `entry.ts` passes it through. Existing tests (`tests/service/auth.test.ts`) still pass unchanged since the accountId parameter is optional and defaults to the prior behavior.
+6. Added 12 new unit tests (`tests/service/nessie.test.ts`) covering the missing-key case, the full translation happy path, cancelled/completed/unrecognized bill statuses, non-active deposit statuses, non-liquid account rejection, malformed/sub-cent-precision balances, account-id mismatch, HTTP failure, and timeout — all against a fake `fetch`, no real network calls in the test suite itself.
+
+**Known open item, not blocking:** the semantic difference between bill statuses `'pending'` and `'recurring'` wasn't fully disambiguated (both are treated as "still upcoming"); see `docs/provider-contracts.md` for detail.
 
 ## Task 2 — Persona sandbox mitigation: skipped, recorded as omitted
 
-Entry condition ("verified Nessie transfer semantics exist, Persona sandbox/template exists, at least four hours remain") fails on its first clause — no live Nessie adapter exists (see `docs/provider-contracts.md`) — so per the plan's own instruction this task is skipped outright. No `src/service/providers/persona.ts` or `src/service/actions/*` files were created; none are required for the core demo.
+Entry condition ("verified Nessie transfer semantics exist, Persona sandbox/template exists, at least four hours remain") still fails: Nessie *account/bill/deposit reads* are now verified (see above), but no *transfer* endpoint was exercised or verified, and no Persona sandbox/template exists. Per the plan's own instruction this task remains skipped. No `src/service/providers/persona.ts` or `src/service/actions/*` files were created; none are required for the core demo.
 
 ## Task 3 — packaged demo and synthetic fallback
 
@@ -121,7 +134,7 @@ Following `plans/2026-09-12-cursor-financial-bodyguard-demo.md`'s script, adjust
 5. **Second platform or honest gap (2:10–2:40):** No second device was available this session; say so rather than claiming Windows parity.
 6. **Contribution (2:40–3:00):** "Clicky inspired the cursor companion and its native macOS capture/voice stack. We built the purchase forecast engine, the OCR decision rules, the authenticated snapshot service, and the grounded conversation layer on top of it." See `docs/attribution.md` for the full breakdown.
 
-Use only Synthetic mode for this rehearsal — Live Nessie and live ElevenLabs are both disabled/unverified (see `docs/provider-contracts.md`). Never substitute a staged transfer or recording for a live integration claim.
+Live Nessie mode is now available as an alternative to Synthetic for this rehearsal (set `FLICKY_DATA_MODE=live-sandbox`) — the seeded demo account mirrors the synthetic fixture exactly, so the numbers in the script above hold either way. Live ElevenLabs remains unverified/uncredentialed (see `docs/provider-contracts.md`). Never substitute a staged transfer or recording for a live integration claim.
 
 ## Native macOS note
 
@@ -130,9 +143,9 @@ Clicky's Xcode target is vendored under `macos/cappy/` (renamed from `macos/lean
 ## Final handoff
 
 - **Branch:** `Aastha-foundation-financial-engine`, merged through `main` at each of: Cappy rebrand + auth/tools (Abhijith Utla), ElevenLabs voice integration (teammate 3, PR #1), Part 2 capture/OCR/overlay (PR #2), the native macOS finance-only conversion follow-up, and the native global hold-to-talk adapter (`rishi-dev`).
-- **Provider availability:** Nessie — unavailable/unverified (403 during planning, no adapter built). ElevenLabs — implemented, credentials absent in every checkout so far. Persona — not attempted, entry condition fails.
+- **Provider availability:** Nessie — implemented and verified live end to end (see above). ElevenLabs — implemented, credentials absent in every checkout so far. Persona — not attempted, entry condition still fails (no verified transfer semantics, no sandbox/template).
 - **Measured latency:** 117ms median end-to-end (real OCR+extract+forecast+router), real pipeline, real screenshot, real production code path (no workaround) — see above. Well under the 3s target.
-- **Omitted features:** Persona-gated sandbox mitigation (by design, entry condition unmet). Live Nessie and live ElevenLabs (credential-gated, both have visible synthetic/typed fallbacks).
+- **Omitted features:** Persona-gated sandbox mitigation (by design, entry condition unmet — no verified transfer semantics or sandbox template). Live ElevenLabs (credential-gated, has a visible typed-input fallback).
 - **Fixed this session:** the two OCR bugs that made real screen-hover capture non-functional (`src/desktop/recognize.ts`, `src/desktop/ocr/recognize.ts`) — see above for full diagnosis and verification.
 - **Still open, not fixed here:** the 4 known issues above (incomplete rebrand remnants, forecast UI not wired into `main.tsx`, native macOS finance tool unwired, Xcode build never validated).
 - **README:** unchanged, confirmed via `git diff origin/main -- README.md` (empty).

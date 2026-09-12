@@ -22,20 +22,27 @@ function sameSecret(actual: string, expected: string) {
 }
 
 export class InMemoryCappyAuthProvider implements CappyAuthProvider {
-  readonly user = demoUser;
+  readonly user: CappyUser;
   private readonly sessions: CappySessionStore;
-  constructor(sessions: CappySessionStore = createSessionStore()) { this.sessions = sessions; }
+  // accountId defaults to the synthetic fixture's id for backward compatibility;
+  // entry.ts passes the actually-configured account (which may be a live
+  // Nessie account id) so a live-mode session isn't bound to a demo account
+  // it can't access.
+  constructor(sessions: CappySessionStore = createSessionStore(), accountId: string = demoUser.accountIds[0]) {
+    this.sessions = sessions;
+    this.user = { ...demoUser, accountIds: [accountId] };
+  }
   async login(email: string, password: string) {
     // Credential comparison stays here; callers never receive or log the password.
     if (!sameSecret(email, 'demo@example.com') || !sameSecret(password, 'demo-password')) throw Object.assign(new Error('Invalid credentials'), { statusCode: 401 });
-    return this.sessions.create(demoUser.id, demoUser.accountIds[0]);
+    return this.sessions.create(this.user.id, this.user.accountIds[0]);
   }
   async logout(sessionId: string) { this.sessions.revoke(sessionId); }
   async validate(sessionId: string) {
     const session = this.sessions.get(sessionId);
-    if (!session || session.userId !== demoUser.id || !demoUser.accountIds.includes(session.accountId)) throw Object.assign(new Error('Unknown session'), { statusCode: 401 });
+    if (!session || session.userId !== this.user.id || !this.user.accountIds.includes(session.accountId)) throw Object.assign(new Error('Unknown session'), { statusCode: 401 });
     return session;
   }
 }
 
-export function createDemoAuthProvider(options?: ConstructorParameters<typeof InMemoryCappyAuthProvider>[0]) { return new InMemoryCappyAuthProvider(options); }
+export function createDemoAuthProvider(sessions?: CappySessionStore, accountId?: string) { return new InMemoryCappyAuthProvider(sessions, accountId); }
