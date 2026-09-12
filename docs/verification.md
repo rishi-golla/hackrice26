@@ -2,16 +2,26 @@
 
 ## Automated checks — macOS, Apple Silicon (arm64), Node v22.15.1
 
-Run against branch `Aastha-foundation-financial-engine` at commit `00cf51d` (merged from `main`: original Electron/domain baseline + Cappy rebrand/auth/tools + teammate 3's ElevenLabs voice integration).
+Run against branch `Aastha-foundation-financial-engine`, merged up through `main`'s Part 2 (capture/OCR/overlay) integration on top of the earlier Cappy rebrand + teammate 3's ElevenLabs voice work.
 
 | Command | Result |
 |---|---|
 | `npm install` | Pass. Note: this host's default Node (20.17) is below Electron 40's floor (>=22.12); Node 22.15.1 via nvm is required. |
 | `npm run typecheck` | Pass, no errors. |
-| `npm test` | Pass — **104/104 tests, 23 files.** |
+| `npm test` | Pass — **127/127 tests, 31 files** (up from 104/23 before Part 2's merge). |
 | `npm run build` | Pass — emits `dist/main.cjs`, `dist/preload.cjs`, `dist/service.cjs`, renderer assets, bundled OCR assets. |
 | `npm run test:e2e` | Pass — "service e2e passed" (authenticated local service flow). |
 | `npm run test:stress` | Pass — 1/1 (concurrent snapshot cache). |
+| `npm run dev` (live launch) | Boots cleanly post-merge; same known non-fatal "Unauthorized renderer" console error as before (unrelated to Part 2's changes). |
+
+## Integration gap found after merging Part 2 (not fixed — flag to Part 2/UI owner)
+
+Part 2 delivered `src/ui/App.tsx`, `ForecastCard.tsx`, `AmountForm.tsx`, and `Annotation.tsx` — a fuller forecast card (reserve line, bill reasons, data-mode badge, editable amount) and a dedicated annotation overlay, each with passing isolated tests. **None of them are actually wired into the running app.** `src/ui/main.tsx` (the file Vite/Electron actually loads) defines its own separate, older, simpler inline `App()`/`Forecast()` and never imports `./App`; `src/ui/App.tsx` is only referenced by its own test file (`tests/ui/App.test.ts`). Concretely, the live app today:
+- Shows amount/status/one chart via its own inline `Forecast` component (not `ForecastCard`) — no bill-reasons list, no dedicated data-mode badge on the card itself.
+- Has no `AmountForm` — amount correction only happens by retyping the question in the chat composer, not a dedicated editable field.
+- Draws its own crude inline annotation `<div>` on the passive surface instead of using `Annotation.tsx`.
+
+Net effect: the underlying financial logic and tests are all correct, but several acceptance-matrix items tied to the richer card UI (bill reasons visible, dedicated amount editor, polished annotation) will **not** match what the live app actually shows if tested against the spec literally. This isn't your file to fix (`src/ui/main.tsx`/`App.tsx` are Part 2's), but it will surface in your Task 4 acceptance run, so it's recorded here now rather than discovered mid-demo.
 
 ## Packaged macOS build — Task 3
 
