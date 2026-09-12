@@ -1,3 +1,3 @@
 # Attribution
 
-Flicky is an original implementation inspired by the public Clicky concept: a cursor-adjacent desktop companion with local screen awareness. No Clicky source is copied in this baseline. Review Clicky's current license and hackathon rules before reusing any upstream code or branding.
+Flicky includes a vendored copy of the public Clicky macOS source under `macos/`, customized with the financial coordinator. Clicky is copyright Farza and released under the MIT license; the full notice is preserved at `macos/CLICKY-LICENSE.txt`. Flicky’s financial forecast, OCR decision rules, service contracts, and demo behavior are original additions. Review hackathon rules before submission.
