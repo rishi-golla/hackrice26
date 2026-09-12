@@ -1,12 +1,5 @@
-import type { Rect } from '../coordinates';
-
-/** A single word returned by the local OCR engine. Coordinates are image pixels. */
-export type OcrWord = {
-  text: string;
-  confidence: number;
-  box: Rect;
-  lineId: string;
-};
+import type { OcrWord, PurchaseCandidate, Rect } from '../types';
+export type { OcrWord, PurchaseCandidate } from '../types';
 
 export type PurchaseCandidateState = 'preview' | 'confirm' | 'no-candidate';
 
@@ -18,19 +11,6 @@ export type PurchaseCandidateReason =
   | 'unsupported-currency'
   | 'low-confidence'
   | 'stale-frame';
-
-/**
- * An OCR result is deliberately not an authorization to purchase. A preview
- * is only produced when all of the conservative association checks pass.
- */
-export type PurchaseCandidate = {
-  amountCents: number | null;
-  sourceText: string;
-  state: PurchaseCandidateState;
-  buttonBox: Rect | null;
-  totalBox: Rect | null;
-  reason: PurchaseCandidateReason;
-};
 
 export type ExtractionOptions = {
   /** Age of the captured frame at publication time. */
