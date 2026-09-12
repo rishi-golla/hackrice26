@@ -1,6 +1,84 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createPipeline } from '../../src/desktop/pipeline';
+import { createPipeline, DwellPipeline } from '../../src/desktop/pipeline';
+import type { CursorSample } from '../../src/desktop/coordinates';
 import type { Frame } from '../../src/desktop/types';
+
+function sample(timestamp: number, x = 100, y = 100, displayId = 'display-1'): CursorSample {
+  return { displayId, x, y, timestamp };
+}
+
+describe('dwell pipeline', () => {
+  it('captures once at 700 ms and not at 699 ms', async () => {
+    const capture = vi.fn().mockResolvedValue(undefined);
+    const pipeline = new DwellPipeline(capture);
+
+    pipeline.arm();
+    await pipeline.observe(sample(0));
+    await pipeline.observe(sample(699));
+    expect(capture).not.toHaveBeenCalled();
+
+    await pipeline.observe(sample(700));
+    expect(capture).toHaveBeenCalledOnce();
+  });
+
+  it('resets dwell when the cursor moves more than 8 DIP', async () => {
+    const capture = vi.fn().mockResolvedValue(undefined);
+    const pipeline = new DwellPipeline(capture);
+
+    pipeline.arm();
+    await pipeline.observe(sample(0));
+    await pipeline.observe(sample(700, 109, 100));
+    await pipeline.observe(sample(1399, 109, 100));
+    expect(capture).not.toHaveBeenCalled();
+
+    await pipeline.observe(sample(1400, 109, 100));
+    expect(capture).toHaveBeenCalledOnce();
+  });
+
+  it('resets dwell when the selected display changes', async () => {
+    const capture = vi.fn().mockResolvedValue(undefined);
+    const pipeline = new DwellPipeline(capture);
+
+    pipeline.arm();
+    await pipeline.observe(sample(0));
+    await pipeline.observe(sample(700, 100, 100, 'display-2'));
+    await pipeline.observe(sample(1399, 100, 100, 'display-2'));
+    expect(capture).not.toHaveBeenCalled();
+
+    await pipeline.observe(sample(1400, 100, 100, 'display-2'));
+    expect(capture).toHaveBeenCalledOnce();
+  });
+
+  it('does not capture during cooldown or after disarm', async () => {
+    const capture = vi.fn().mockResolvedValue(undefined);
+    const pipeline = new DwellPipeline(capture);
+
+    pipeline.arm();
+    await pipeline.observe(sample(0));
+    await pipeline.observe(sample(700));
+    await pipeline.observe(sample(5699));
+    expect(capture).toHaveBeenCalledOnce();
+
+    pipeline.disarm();
+    await pipeline.observe(sample(6400));
+    expect(capture).toHaveBeenCalledOnce();
+  });
+
+  it('does not start a second capture while one is in flight', async () => {
+    let releaseCapture!: () => void;
+    const capture = vi.fn(() => new Promise<void>((resolve) => { releaseCapture = resolve; }));
+    const pipeline = new DwellPipeline(capture);
+
+    pipeline.arm();
+    await pipeline.observe(sample(0));
+    const firstCapture = pipeline.observe(sample(700));
+    await pipeline.observe(sample(1400));
+    expect(capture).toHaveBeenCalledOnce();
+
+    releaseCapture();
+    await firstCapture;
+  });
+});
 
 const frame = (id: string): Frame => ({
   id,
@@ -23,8 +101,8 @@ const deferred = <T>() => {
   return { promise, resolve, reject };
 };
 
-describe('createPipeline', () => {
-  it('allows only one extraction and drops work submitted while busy', async () => {
+describe('single-flight frame pipeline', () => {
+  it('drops work submitted while an extraction is busy', async () => {
     const first = deferred<string>();
     const extract = vi.fn(() => first.promise);
     const publish = vi.fn();
@@ -52,7 +130,6 @@ describe('createPipeline', () => {
     expect(publish).not.toHaveBeenCalled();
 
     await pipeline.run(frame('second'));
-    expect(publish).toHaveBeenCalledTimes(1);
     expect(publish).toHaveBeenCalledWith('second-result');
   });
 

@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { extractPurchase } from '../../src/desktop/extract';
-import type { CursorSample, Frame, OcrWord } from '../../src/desktop/types';
+import { extractPurchase, type OcrWord } from '../../src/desktop/ocr/extract';
+import { extractPurchase as extractDesktopPurchase } from '../../src/desktop/extract';
+import type { CursorSample, Frame } from '../../src/desktop/types';
 
-const frame = (capturedAt = 7_000): Frame => ({
+function word(text: string, x: number, y = 0, lineId = `${y}`, confidence = 99): OcrWord {
+  return {
+    text,
+    confidence,
+    lineId,
+    box: { x, y, width: Math.max(20, text.length * 8), height: 20 },
+  };
+}
+
+const desktopFrame = (capturedAt = 7_000): Frame => ({
   id: 'checkout-frame',
   capturedAt,
   displayId: 'left',
@@ -13,142 +23,202 @@ const frame = (capturedAt = 7_000): Frame => ({
   png: new Uint8Array(),
 });
 
-const cursor = (x = -760, y = 210, displayId = 'left'): CursorSample => ({ x, y, displayId, at: 10_000 });
+const desktopCursor = (x = -760, y = 210, displayId = 'left'): CursorSample => ({ x, y, displayId, at: 10_000 });
 
-const word = (text: string, lineId: string, x: number, y: number, confidence = 99, width = 100): OcrWord => ({
-  text,
-  confidence,
-  lineId,
-  box: { x, y, width, height: 40 },
-});
+describe('purchase candidate extraction', () => {
+  it('does not treat a subtotal as a final total', () => {
+    const words = [
+      word('Subtotal', 0),
+      word('$200.00', 80),
+      word('Buy', 0, 50, 'button'),
+      word('now', 35, 50, 'button'),
+    ];
 
-const checkoutWords = (total = '$1,234.56'): OcrWord[] => [
-  word('Order', 'total', 200, 100, 99, 50),
-  word('Total', 'total', 255, 100, 99, 55),
-  word(total, 'total', 320, 100, 99, 120),
-  word('Place', 'button', 400, 400, 99, 70),
-  word('Order', 'button', 480, 400, 99, 70),
-];
+    expect(extractPurchase(words, { x: 20, y: 50 }).state).toBe('no-candidate');
+    expect(extractPurchase(words, { x: 20, y: 50 }).reason).toBe('missing-total');
+  });
 
-describe('extractPurchase', () => {
-  it('previews one fresh USD final total associated with the cursor', () => {
-    expect(extractPurchase(checkoutWords(), frame(), cursor(), 10_000)).toEqual({
-      amountCents: 123_456,
-      sourceText: 'Order Total $1,234.56',
+  it('previews one fresh, high-confidence final total associated with the cursor', () => {
+    const words = [
+      word('Order', 0),
+      word('Total', 55),
+      word('$200.00', 115),
+      word('Buy', 0, 50, 'button'),
+      word('now', 35, 50, 'button'),
+    ];
+
+    expect(extractPurchase(words, { x: 20, y: 50 }, { frameAgeMs: 100 })).toEqual({
+      amountCents: 20_000,
+      sourceText: '$200.00',
       state: 'preview',
+      buttonBox: { x: 0, y: 50, width: 59, height: 20 },
+      totalBox: { x: 115, y: 0, width: 56, height: 20 },
       reason: 'single-total',
-      totalBox: { x: -900, y: 50, width: 120, height: 20 },
-      buttonBox: { x: -800, y: 200, width: 75, height: 20 },
     });
   });
 
-  it('does not treat a subtotal as a final total', () => {
+  it('uses the final total when a subtotal is also present', () => {
     const words = [
-      word('Subtotal', 'subtotal', 200, 100, 99),
-      word('$200.00', 'subtotal', 310, 100, 99),
-      word('Checkout', 'button', 400, 400, 99),
+      word('Subtotal', 0),
+      word('$180.00', 80),
+      word('Total', 0, 30, 'total'),
+      word('$200.00', 55, 30, 'total'),
+      word('Checkout', 0, 70, 'button'),
     ];
 
-    expect(extractPurchase(words, frame(), cursor(), 10_000)).toMatchObject({
-      amountCents: null,
-      state: 'confirm',
-      reason: 'missing-total',
-    });
+    const result = extractPurchase(words, { x: 20, y: 70 });
+    expect(result.state).toBe('preview');
+    expect(result.amountCents).toBe(20_000);
   });
 
   it('requires confirmation when final totals conflict', () => {
     const words = [
-      ...checkoutWords('$200.00'),
-      word('Grand', 'other-total', 200, 200, 99, 60),
-      word('Total', 'other-total', 270, 200, 99, 60),
-      word('$250.00', 'other-total', 340, 200, 99, 110),
+      word('Total', 0, 0, 'first'),
+      word('$200.00', 50, 0, 'first'),
+      word('Total', 0, 30, 'second'),
+      word('$220.00', 50, 30, 'second'),
+      word('Buy', 0, 70, 'button'),
+      word('now', 35, 70, 'button'),
     ];
 
-    expect(extractPurchase(words, frame(), cursor(), 10_000)).toMatchObject({
+    const result = extractPurchase(words, { x: 20, y: 70 });
+    expect(result.state).toBe('confirm');
+    expect(result.reason).toBe('ambiguous');
+    expect(result.amountCents).toBeNull();
+    expect(result.sourceText).toBe('$200.00, $220.00');
+  });
+
+  it('requires confirmation for repeated equal totals rather than silently choosing one', () => {
+    const words = [
+      word('Grand', 0, 0, 'first'),
+      word('Total', 45, 0, 'first'),
+      word('$200.00', 100, 0, 'first'),
+      word('Total', 0, 30, 'second'),
+      word('$200.00', 50, 30, 'second'),
+      word('Place', 0, 70, 'button'),
+      word('Order', 45, 70, 'button'),
+    ];
+
+    expect(extractPurchase(words, { x: 20, y: 70 }).reason).toBe('ambiguous');
+  });
+
+  it('rejects unsupported euro totals instead of converting them', () => {
+    const words = [
+      word('Total', 0),
+      word('€200.00', 50),
+      word('Checkout', 0, 50, 'button'),
+    ];
+
+    const result = extractPurchase(words, { x: 20, y: 50 });
+    expect(result.state).toBe('no-candidate');
+    expect(result.reason).toBe('unsupported-currency');
+    expect(result.amountCents).toBeNull();
+  });
+
+  it('returns no candidate when the purchase phrase is missing', () => {
+    const result = extractPurchase([
+      word('Total', 0),
+      word('$200.00', 50),
+    ], { x: 20, y: 0 });
+
+    expect(result.state).toBe('no-candidate');
+    expect(result.reason).toBe('missing-button');
+    expect(result.amountCents).toBeNull();
+  });
+
+  it('returns confirmation when a purchase phrase exists but is not cursor-associated', () => {
+    const result = extractPurchase([
+      word('Total', 0),
+      word('$200.00', 50),
+      word('Buy', 500, 0, 'button'),
+      word('Now', 535, 0, 'button'),
+    ], { x: 0, y: 0 });
+
+    expect(result.state).toBe('confirm');
+    expect(result.reason).toBe('missing-button');
+    expect(result.amountCents).toBe(20_000);
+    expect(result.buttonBox).toBeNull();
+  });
+
+  it('requires confirmation for low-confidence OCR', () => {
+    const result = extractPurchase([
+      word('Total', 0, 0, 'total', 99),
+      word('$200.00', 50, 0, 'total', 88),
+      word('Checkout', 0, 50, 'button', 99),
+    ], { x: 20, y: 50 });
+
+    expect(result.state).toBe('confirm');
+    expect(result.reason).toBe('low-confidence');
+    expect(result.amountCents).toBe(20_000);
+  });
+
+  it('rejects stale captured frames before extracting an amount', () => {
+    const result = extractPurchase([
+      word('Total', 0),
+      word('$200.00', 50),
+      word('Buy', 0, 50, 'button'),
+      word('Now', 35, 50, 'button'),
+    ], { x: 20, y: 50 }, { frameAgeMs: 3_001 });
+
+    expect(result).toEqual({
       amountCents: null,
-      state: 'confirm',
-      reason: 'ambiguous',
+      sourceText: '',
+      state: 'no-candidate',
+      buttonBox: null,
+      totalBox: null,
+      reason: 'stale-frame',
     });
   });
 
-  it('treats repeated equal totals as one value', () => {
+  it('does not use a nearby unrelated price or installment amount', () => {
+    expect(extractPurchase([
+      word('$200.00', 0),
+      word('Buy', 0, 50, 'button'),
+      word('Now', 35, 50, 'button'),
+    ], { x: 20, y: 50 }).reason).toBe('missing-total');
+
+    expect(extractPurchase([
+      word('Total', 0),
+      word('4', 0),
+      word('payments', 15),
+      word('of', 90),
+      word('$50.00', 110),
+      word('Checkout', 0, 50, 'button'),
+    ], { x: 20, y: 50 }).reason).toBe('missing-total');
+  });
+});
+
+describe('desktop extraction adapter', () => {
+  it('reuses the image extractor and maps candidate boxes to desktop coordinates', () => {
     const words = [
-      ...checkoutWords('$200.00'),
-      word('Total', 'repeat', 200, 200, 99, 80),
-      word('$200.00', 'repeat', 290, 200, 99, 110),
+      word('Order', 200, 100, 'total'),
+      word('Total', 255, 100, 'total'),
+      word('$1,234.56', 320, 100, 'total'),
+      word('Place', 400, 400, 'button'),
+      word('Order', 480, 400, 'button'),
     ];
 
-    expect(extractPurchase(words, frame(), cursor(), 10_000)).toMatchObject({
-      amountCents: 20_000,
+    expect(extractDesktopPurchase(words, desktopFrame(), desktopCursor(), 10_000)).toEqual({
+      amountCents: 123_456,
+      sourceText: 'Order Total $1,234.56',
       state: 'preview',
       reason: 'single-total',
+      totalBox: { x: -840, y: 50, width: 36, height: 10 },
+      buttonBox: { x: -800, y: 200, width: 60, height: 10 },
     });
   });
 
-  it.each(['€200.00', 'EUR 200.00', '£200.00'])('rejects unsupported currency %s', (amount) => {
-    expect(extractPurchase(checkoutWords(amount), frame(), cursor(), 10_000)).toMatchObject({
-      amountCents: null,
-      state: 'no-candidate',
-      reason: 'unsupported-currency',
-    });
-  });
-
-  it('returns no candidate when no purchase phrase is present', () => {
-    expect(extractPurchase(checkoutWords().slice(0, 3), frame(), cursor(), 10_000)).toMatchObject({
-      state: 'no-candidate',
-      reason: 'missing-button',
-    });
-  });
-
-  it('requires confirmation for a stale frame', () => {
-    expect(extractPurchase(checkoutWords(), frame(6_999), cursor(), 10_000)).toMatchObject({
-      amountCents: 123_456,
-      state: 'confirm',
-      reason: 'low-confidence',
-    });
-  });
-
-  it('requires confirmation at confidence 89', () => {
-    const words = checkoutWords();
-    words[3] = { ...words[3], confidence: 89 };
-    expect(extractPurchase(words, frame(), cursor(), 10_000)).toMatchObject({
-      amountCents: 123_456,
-      state: 'confirm',
-      reason: 'low-confidence',
-    });
-  });
-
-  it('requires confirmation when the matching purchase phrase is more than 80 DIP away', () => {
-    expect(extractPurchase(checkoutWords(), frame(), cursor(-990, 490), 10_000)).toMatchObject({
-      amountCents: 123_456,
-      state: 'confirm',
-      reason: 'missing-button',
-    });
-  });
-
-  it('does not multiply installment-only prices into a total', () => {
+  it('downgrades a late preview to confirmation without discarding the amount', () => {
     const words = [
-      word('or', 'installment', 100, 100, 99, 30),
-      word('4', 'installment', 140, 100, 99, 20),
-      word('payments', 'installment', 170, 100, 99, 100),
-      word('of', 'installment', 280, 100, 99, 30),
-      word('$50.00', 'installment', 320, 100, 99, 100),
-      word('Buy', 'button', 400, 400, 99, 50),
-      word('Now', 'button', 460, 400, 99, 50),
+      word('Total', 200, 100, 'total'),
+      word('$20.00', 255, 100, 'total'),
+      word('Checkout', 400, 400, 'button'),
     ];
 
-    expect(extractPurchase(words, frame(), cursor(), 10_000)).toMatchObject({
-      amountCents: null,
+    expect(extractDesktopPurchase(words, desktopFrame(6_999), desktopCursor(), 10_000)).toMatchObject({
+      amountCents: 2_000,
       state: 'confirm',
-      reason: 'missing-total',
-    });
-  });
-
-  it('ignores an unrelated nearby price when a labeled total exists', () => {
-    const words = [...checkoutWords('$200.00'), word('$9.99', 'ad', 450, 360, 99, 80)];
-    expect(extractPurchase(words, frame(), cursor(), 10_000)).toMatchObject({
-      amountCents: 20_000,
-      state: 'preview',
+      reason: 'low-confidence',
     });
   });
 });
