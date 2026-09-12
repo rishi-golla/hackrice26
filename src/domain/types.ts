@@ -26,6 +26,10 @@ export type Snapshot = {
   complete: boolean;
   stale: boolean;
   sources?: string[];
+  accountType?: string;
+  accountNickname?: string;
+  accountLast4?: string;
+  rewardsPoints?: number;
   events: CashEvent[];
 };
 
@@ -117,6 +121,17 @@ export function validateSnapshot(value: unknown): Snapshot {
   if (input.sources !== undefined) {
     if (!Array.isArray(input.sources)) throw new Error('Snapshot.sources must be an array');
     input.sources.forEach(source => nonEmptyString(source, 'Snapshot.sources entry'));
+  }
+  if (input.accountType !== undefined) nonEmptyString(input.accountType, 'Snapshot.accountType');
+  if (input.accountNickname !== undefined) nonEmptyString(input.accountNickname, 'Snapshot.accountNickname');
+  if (input.accountLast4 !== undefined) {
+    if (typeof input.accountLast4 !== 'string' || !/^\d{4}$/.test(input.accountLast4)) {
+      throw new Error('Snapshot.accountLast4 must be exactly four digits');
+    }
+  }
+  if (input.rewardsPoints !== undefined) {
+    safeInteger(input.rewardsPoints, 'Snapshot.rewardsPoints');
+    if (input.rewardsPoints < 0) throw new Error('Snapshot.rewardsPoints must be nonnegative');
   }
   if (!Array.isArray(input.events)) throw new Error('Snapshot.events must be an array');
 

@@ -77,6 +77,10 @@ describe('normalizeNessieSnapshot', () => {
       complete: false,
       stale: false,
       sources: ['/accounts/a1', '/accounts/a1/loans'],
+      accountType: 'Checking',
+      accountNickname: 'Daily checking',
+      accountLast4: '3456',
+      rewardsPoints: 17,
     });
   });
 
@@ -238,6 +242,15 @@ describe('normalizeNessieSnapshot', () => {
 
     expect(JSON.stringify(result)).not.toContain('1234567890123456');
     expect(result.events[0].label).toBe('Bill');
+  });
+
+  it('omits an account nickname that contains the full account number', () => {
+    const result = normalizeNessieSnapshot(input({
+      account: { ...account, nickname: 'Checking 1234567890123456' },
+    }), options);
+
+    expect(result.accountNickname).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain('1234567890123456');
   });
 
   it('redacts formatted account numbers and long digit sequences from labels', () => {
