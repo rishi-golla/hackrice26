@@ -22,23 +22,12 @@ function App() {
   const [annotation, setAnnotation] = useState<{ x: number; y: number; width: number; height: number }>();
   const candidateRef = useRef<CandidateView | undefined>(undefined);
   const configRef = useRef<PublicConfig | undefined>(undefined);
+  const convaiRef = useRef<ConvAIVoiceController | null>(null);
   candidateRef.current = candidate;
   configRef.current = config;
 
   // Legacy STT+TTS controller (used when ConvAI is not available)
   const voice = useMemo(() => new VoiceTurnController(window.flicky, createBrowserVoiceRuntime(), setState, setError), []);
-
-  // ElevenLabs Conversational AI controller (used when convai capability is enabled)
-  const convai = useMemo(() => new ConvAIVoiceController(
-    window.flicky,
-    '', // accountId filled in at start time from config
-    10_000,
-    {
-      onState: setState,
-      onError: setError,
-      onInsights: setConvaiInsights,
-    },
-  ), []);
 
   // Build a fresh ConvAI context from current screen state
   const buildConvaiContext = () => ({
@@ -63,8 +52,7 @@ function App() {
           10_000,
           { onState: setState, onError: setError, onInsights: setConvaiInsights },
         );
-        // Store reference for toggling
-        (window as any).__convai = ctrl;
+        convaiRef.current = ctrl;
         await ctrl.start(buildConvaiContext());
       } else {
         await voice.start(candidateRef.current?.id);
@@ -75,13 +63,13 @@ function App() {
   };
 
   const stopVoice = () => {
-    const ctrl = (window as any).__convai as ConvAIVoiceController | undefined;
-    if (ctrl?.isActive()) { void ctrl.stop(); (window as any).__convai = undefined; return; }
+    const ctrl = convaiRef.current;
+    if (ctrl?.isActive()) { void ctrl.stop(); convaiRef.current = null; return; }
     voice.stop();
   };
 
   const toggleVoice = async () => {
-    const ctrl = (window as any).__convai as ConvAIVoiceController | undefined;
+    const ctrl = convaiRef.current;
     if (ctrl?.isActive()) { stopVoice(); return; }
     if (voice.isRecording()) { voice.stop(); return; }
     await startVoice();
@@ -164,6 +152,7 @@ function App() {
           onStart={() => void startVoice()}
           onStop={stopVoice}
           onToggleMute={toggleMute}
+          useToggle={isConvAIActive}
         />
         <small>{isConvAIActive ? 'AI advisor mode — full conversation' : `Hold ${config?.shortcut || 'Ctrl+Shift+Space'} for voice.`}</small>
       </div>

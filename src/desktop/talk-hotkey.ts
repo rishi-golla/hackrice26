@@ -69,7 +69,7 @@ export function registerHoldToTalk(
 
 type NativeHookModule = {
   uIOhook: TalkHotkeyHook;
-  UiohookKey: { Ctrl: number; CtrlRight: number; Space: number };
+  UiohookKey: { Ctrl: number; CtrlRight: number; Space: number; Alt?: number; AltRight?: number };
 };
 
 /**
@@ -94,6 +94,54 @@ export function registerNativeHoldToTalk(handlers: TalkHotkeyHandlers): (() => v
     }
     return () => {
       cleanup();
+      native.uIOhook.stop();
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Registers an Alt+Space toggle shortcut via the native uiohook.
+ * One press activates, the next press deactivates — no hold required.
+ */
+export function registerNativeAltSpaceToggle(onToggle: () => void): (() => void) | undefined {
+  try {
+    const require = createRequire(import.meta.url);
+    const native = require('uiohook-napi') as NativeHookModule;
+    const altLeft = native.UiohookKey.Alt ?? 56;
+    const altRight = native.UiohookKey.AltRight ?? 3640;
+    const space = native.UiohookKey.Space;
+
+    let altDown = false;
+    let disposed = false;
+
+    const onKeyDown = ({ keycode }: { keycode: number }) => {
+      if (disposed) return;
+      if (keycode === altLeft || keycode === altRight) { altDown = true; return; }
+      if (keycode === space && altDown) onToggle();
+    };
+    const onKeyUp = ({ keycode }: { keycode: number }) => {
+      if (disposed) return;
+      if (keycode === altLeft || keycode === altRight) altDown = false;
+    };
+
+    native.uIOhook.on('keydown', onKeyDown);
+    native.uIOhook.on('keyup', onKeyUp);
+
+    try {
+      native.uIOhook.start();
+    } catch {
+      native.uIOhook.removeListener('keydown', onKeyDown);
+      native.uIOhook.removeListener('keyup', onKeyUp);
+      return undefined;
+    }
+
+    return () => {
+      if (disposed) return;
+      disposed = true;
+      native.uIOhook.removeListener('keydown', onKeyDown);
+      native.uIOhook.removeListener('keyup', onKeyUp);
       native.uIOhook.stop();
     };
   } catch {
