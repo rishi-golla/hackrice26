@@ -9,3 +9,4 @@ release/
 .DS_Store
 test-results/
 macos/clicky-worker/.dev.vars
+**/xcuserdata/
