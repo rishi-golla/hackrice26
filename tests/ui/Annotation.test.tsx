@@ -44,7 +44,7 @@ describe('Annotation', () => {
     expect(cursor?.getAttribute('src')).toBe('./cursor.png');
     expect(cursor?.getAttribute('alt')).toBe('');
     expect(cursor?.getAttribute('aria-hidden')).toBe('true');
-    expect(cursor?.style.left).toBe('118px');
-    expect(cursor?.style.top).toBe('218px');
+    expect(cursor?.style.left).toBe('124px');
+    expect(cursor?.style.top).toBe('224px');
   });
 });

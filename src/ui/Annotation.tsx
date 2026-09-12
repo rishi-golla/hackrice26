@@ -20,6 +20,9 @@ export type CursorHaloProps = {
   state?: CursorState;
 };
 
+export const CURSOR_OFFSET = 24;
+export const CURSOR_DOTS_OFFSET = CURSOR_OFFSET + 16;
+
 export function annotationCanRender(props: Pick<AnnotationProps, 'buttonBox' | 'frame' | 'frameAgeMs' | 'status' | 'confirmed' | 'active'>): boolean {
   return props.active !== false
     && props.confirmed
@@ -42,7 +45,7 @@ export function CursorHalo({ x, y, state }: CursorHaloProps): ReactElement {
     className={state ? `cursor-image ${state}` : 'cursor-image'}
     draggable={false}
     src="./cursor.png"
-    style={{ left: x + 18, top: y + 18 }}
+    style={{ left: x + CURSOR_OFFSET, top: y + CURSOR_OFFSET }}
   />;
 }
 

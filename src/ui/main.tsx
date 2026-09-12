@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Answer, CandidateView, CursorState, PublicConfig } from '../shared/contracts';
-import { CursorHalo } from './Annotation';
+import { CURSOR_DOTS_OFFSET, CURSOR_OFFSET, CursorHalo } from './Annotation';
 import { VoiceControl } from './VoiceControl';
 import { ForecastChart } from './ForecastChart';
 import { createBrowserVoiceRuntime, VoiceTurnController } from './voice';
@@ -18,7 +18,7 @@ function App() {
   const startVoice = async () => { setError(''); try { const next = await window.flicky.consent(true); setConfig(next); if (!next.microphoneConsent) throw new Error('Microphone permission is required.'); await voice.start(candidateRef.current?.id); } catch (e) { setError(e instanceof Error ? e.message : 'Microphone access failed.'); } };
   const toggleVoice = async () => { if (voice.isRecording()) { voice.stop(); return; } await startVoice(); };
   useEffect(() => { const passiveOff = window.flicky.onPassive(value => { setCursor(value.cursor); setAnnotation(value.annotation); setState(value.state); }); if (passive) return () => passiveOff(); window.flicky.initial().then(setConfig).catch(e => setError(String(e))); const off = window.flicky.onEvent(event => { if (event.type === 'config') setConfig(event.config); if (event.type === 'answer') setAnswer(event.answer); if (event.type === 'candidate') { candidateRef.current = event.candidate; setCandidate(event.candidate); } if (event.type === 'state') setState(event.state); if (event.type === 'error') setError(event.message); if (event.type === 'voice-start') void startVoice(); if (event.type === 'voice-stop') voice.stop(); if (event.type === 'voice-toggle') void toggleVoice(); if (event.type === 'cancel') voice.handleHostCancel(); }); return () => { off(); passiveOff(); voice.cancelLocal(); }; }, [passive, voice]);
-  if (passive) return <div className="passive"><CursorHalo x={cursor.x} y={cursor.y} state={state} />{state === 'listening' && <div className="talk-dots" style={{ left: cursor.x + 18, top: cursor.y + 34 }} aria-label="Listening"><span className="talk-dot" /><span className="talk-dot" /><span className="talk-dot" /></div>}{annotation && <div className="annotation" style={annotation}><span>Check this total</span></div>}</div>;
+  if (passive) return <div className="passive"><CursorHalo x={cursor.x} y={cursor.y} state={state} />{state === 'listening' && <div className="talk-dots" style={{ left: cursor.x + CURSOR_OFFSET, top: cursor.y + CURSOR_DOTS_OFFSET }} aria-label="Listening"><span className="talk-dot" /><span className="talk-dot" /><span className="talk-dot" /></div>}{annotation && <div className="annotation" style={annotation}><span>Check this total</span></div>}</div>;
   const submit = async (event: React.FormEvent) => { event.preventDefault(); if (!text.trim()) return; setError(''); try { await window.flicky.turn(text, candidate?.id); setText(''); } catch (e) { setError(e instanceof Error ? e.message : 'Turn failed'); } };
   const toggleMute = () => { const next = !muted; setMuted(next); voice.setMuted(next); };
   const forecast = answer?.forecast;

@@ -82,8 +82,9 @@ button { cursor: pointer; }
 .forecast-card__text-result { margin: 0; color: #dce8df; font-size: 13px; line-height: 1.4; }
 .quiet-button { flex: none; border: 1px solid #45604e; border-radius: 8px; padding: 6px 9px; color: #c5f0d2; background: transparent; font-size: 11px; }
 
-.cursor-image { position: fixed; width: 32px; height: 32px; object-fit: contain; pointer-events: none; transform: translate(-50%, -50%); user-select: none; }
+.cursor-image { position: fixed; width: 32px; height: 32px; object-fit: contain; pointer-events: none; transform: translate(-50%, -50%); user-select: none; will-change: left, top; transition: left 120ms cubic-bezier(0.22, 1, 0.36, 1), top 120ms cubic-bezier(0.22, 1, 0.36, 1); }
 .cursor-image.thinking { animation: pulse 1.2s infinite; filter: drop-shadow(0 0 4px rgba(155, 228, 175, 0.55)); }
+.talk-dots { transition: left 120ms cubic-bezier(0.22, 1, 0.36, 1), top 120ms cubic-bezier(0.22, 1, 0.36, 1); }
 .annotation { position: fixed; z-index: 20; pointer-events: none; }
 .annotation__outline { position: absolute; inset: 6px; border: 2px solid #ff6d6d; border-radius: 6px; }
 .annotation__arrow { position: absolute; right: 100%; bottom: 100%; width: 46px; height: 34px; overflow: visible; }
