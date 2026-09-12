@@ -1,5 +1,5 @@
 //
-//  BuddyAudioConversionSupport.swift
+//  CappyAudioConversionSupport.swift
 //  leanring-buddy
 //
 //  Shared audio conversion helpers for voice transcription providers.
@@ -8,7 +8,7 @@
 import AVFoundation
 import Foundation
 
-final class BuddyPCM16AudioConverter {
+final class CappyPCM16AudioConverter {
     private let targetAudioFormat: AVAudioFormat
     private var audioConverter: AVAudioConverter?
     private var currentInputFormatDescription: String?
@@ -69,7 +69,7 @@ final class BuddyPCM16AudioConverter {
     }
 }
 
-enum BuddyWAVFileBuilder {
+enum CappyWAVFileBuilder {
     static func buildWAVData(
         fromPCM16MonoAudio pcm16AudioData: Data,
         sampleRate: Int,

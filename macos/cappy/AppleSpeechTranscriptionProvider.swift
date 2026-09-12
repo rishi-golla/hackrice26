@@ -17,7 +17,7 @@ struct AppleSpeechTranscriptionProviderError: LocalizedError {
     }
 }
 
-final class AppleSpeechTranscriptionProvider: BuddyTranscriptionProvider {
+final class AppleSpeechTranscriptionProvider: CappyTranscriptionProvider {
     let displayName = "Apple Speech"
     let requiresSpeechRecognitionPermission = true
     let isConfigured = true
@@ -28,7 +28,7 @@ final class AppleSpeechTranscriptionProvider: BuddyTranscriptionProvider {
         onTranscriptUpdate: @escaping (String) -> Void,
         onFinalTranscriptReady: @escaping (String) -> Void,
         onError: @escaping (Error) -> Void
-    ) async throws -> any BuddyStreamingTranscriptionSession {
+    ) async throws -> any CappyStreamingTranscriptionSession {
         guard let speechRecognizer = Self.makeBestAvailableSpeechRecognizer() else {
             throw AppleSpeechTranscriptionProviderError(message: "dictation is not available on this mac.")
         }
@@ -57,7 +57,7 @@ final class AppleSpeechTranscriptionProvider: BuddyTranscriptionProvider {
     }
 }
 
-private final class AppleSpeechTranscriptionSession: NSObject, BuddyStreamingTranscriptionSession {
+private final class AppleSpeechTranscriptionSession: NSObject, CappyStreamingTranscriptionSession {
     let finalTranscriptFallbackDelaySeconds: TimeInterval = 1.8
 
     private let recognitionRequest: SFSpeechAudioBufferRecognitionRequest

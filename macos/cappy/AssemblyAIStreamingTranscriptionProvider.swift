@@ -16,7 +16,7 @@ struct AssemblyAIStreamingTranscriptionProviderError: LocalizedError {
     }
 }
 
-final class AssemblyAIStreamingTranscriptionProvider: BuddyTranscriptionProvider {
+final class AssemblyAIStreamingTranscriptionProvider: CappyTranscriptionProvider {
     /// URL for the Cloudflare Worker endpoint that returns a short-lived
     /// AssemblyAI streaming token. The real API key never leaves the server.
     private static let tokenProxyURL = "https://your-worker-name.your-subdomain.workers.dev/transcribe-token"
@@ -38,7 +38,7 @@ final class AssemblyAIStreamingTranscriptionProvider: BuddyTranscriptionProvider
         onTranscriptUpdate: @escaping (String) -> Void,
         onFinalTranscriptReady: @escaping (String) -> Void,
         onError: @escaping (Error) -> Void
-    ) async throws -> any BuddyStreamingTranscriptionSession {
+    ) async throws -> any CappyStreamingTranscriptionSession {
         // Fetch a fresh temporary token from the proxy before each session
         let temporaryToken = try await fetchTemporaryToken()
         print("🎙️ AssemblyAI: fetched temporary token (\(temporaryToken.prefix(20))...)")
@@ -84,7 +84,7 @@ final class AssemblyAIStreamingTranscriptionProvider: BuddyTranscriptionProvider
     }
 }
 
-private final class AssemblyAIStreamingTranscriptionSession: NSObject, BuddyStreamingTranscriptionSession {
+private final class AssemblyAIStreamingTranscriptionSession: NSObject, CappyStreamingTranscriptionSession {
     private struct MessageEnvelope: Decodable {
         let type: String
     }
@@ -123,7 +123,7 @@ private final class AssemblyAIStreamingTranscriptionSession: NSObject, BuddyStre
 
     private let stateQueue = DispatchQueue(label: "com.learningbuddy.assemblyai.state")
     private let sendQueue = DispatchQueue(label: "com.learningbuddy.assemblyai.send")
-    private let audioPCM16Converter = BuddyPCM16AudioConverter(targetSampleRate: targetSampleRate)
+    private let audioPCM16Converter = CappyPCM16AudioConverter(targetSampleRate: targetSampleRate)
     private let urlSession: URLSession
 
     private var webSocketTask: URLSessionWebSocketTask?

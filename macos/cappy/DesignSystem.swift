@@ -138,7 +138,7 @@ enum DS {
 
         // ── Overlay Cursor ───────────────────────────────────────────
 
-        /// The blue cursor/bubble color used in OverlayWindow.
+        /// Accent color for Cappy status and forecast surfaces.
         /// Kept distinct from the accent since it serves a different purpose
         /// (screen overlay vs in-app UI).
         static let overlayCursorBlue = Color(hex: "#3380FF")
@@ -747,9 +747,9 @@ extension View {
     }
 }
 
-// MARK: - Buddy Composer Visual Style
+// MARK: - Cappy Composer Visual Style
 
-enum BuddyComposerVisualStyle {
+enum CappyComposerVisualStyle {
     static let waveformLeadingColor = Color(hex: "#F3FBFF")
     static let waveformTrailingColor = Color(hex: "#8FD2FF")
     static let waveformGlowColor = Color(hex: "#AEE3FF")
