@@ -411,7 +411,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 2UDAY4J48G;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -421,14 +421,17 @@
 				INFOPLIST_FILE = "leanring-buddy/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Flicky;
 				INFOPLIST_KEY_CFBundleName = Flicky;
+				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Flicky uses your microphone so you can talk to it";
 				INFOPLIST_KEY_NSScreenCaptureUsageDescription = "Flicky reads checkout totals locally when you enable screen analysis.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Flicky uses local speech recognition to transcribe your voice.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.yourcompany.leanring-buddy";
+				PRODUCT_BUNDLE_IDENTIFIER = com.abhijithutla.flicky;
 				PRODUCT_NAME = Flicky;
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -449,7 +452,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 2UDAY4J48G;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -459,14 +462,17 @@
 				INFOPLIST_FILE = "leanring-buddy/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Flicky;
 				INFOPLIST_KEY_CFBundleName = Flicky;
+				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Flicky uses your microphone so you can talk to it";
 				INFOPLIST_KEY_NSScreenCaptureUsageDescription = "Flicky reads checkout totals locally when you enable screen analysis.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Flicky uses local speech recognition to transcribe your voice.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.yourcompany.leanring-buddy";
+				PRODUCT_BUNDLE_IDENTIFIER = com.abhijithutla.flicky;
 				PRODUCT_NAME = Flicky;
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
