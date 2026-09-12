@@ -4,7 +4,7 @@
 //
 //  Manages the NSStatusItem (menu bar icon) and a custom borderless NSPanel
 //  that drops down below it when clicked. The panel hosts a SwiftUI view
-//  (CompanionPanelView) via NSHostingView. Uses the same NSPanel pattern as
+//  (CappyPanelView) via NSHostingView. Uses the same NSPanel pattern as
 //  FloatingSessionButton and GlobalPushToTalkOverlay for consistency.
 //
 //  The panel is non-activating so it does not steal focus from the user's
@@ -15,7 +15,7 @@ import AppKit
 import SwiftUI
 
 extension Notification.Name {
-    static let clickyDismissPanel = Notification.Name("clickyDismissPanel")
+    static let cappyDismissPanel = Notification.Name("cappyDismissPanel")
 }
 
 /// Custom NSPanel subclass that can become the key window even with
@@ -31,17 +31,17 @@ final class MenuBarPanelManager: NSObject {
     private var clickOutsideMonitor: Any?
     private var dismissPanelObserver: NSObjectProtocol?
 
-    private let companionManager: CompanionManager
+    private let cappyManager: CappyManager
     private let panelWidth: CGFloat = 320
     private let panelHeight: CGFloat = 380
 
-    init(companionManager: CompanionManager) {
-        self.companionManager = companionManager
+    init(cappyManager: CappyManager) {
+        self.cappyManager = cappyManager
         super.init()
         createStatusItem()
 
         dismissPanelObserver = NotificationCenter.default.addObserver(
-            forName: .clickyDismissPanel,
+            forName: .cappyDismissPanel,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -65,7 +65,7 @@ final class MenuBarPanelManager: NSObject {
 
         guard let button = statusItem?.button else { return }
 
-        button.image = makeClickyMenuBarIcon()
+        button.image = makeCappyMenuBarIcon()
         button.image?.isTemplate = true
         button.action = #selector(statusItemClicked)
         button.target = self
@@ -73,7 +73,7 @@ final class MenuBarPanelManager: NSObject {
 
     /// Draws the clicky triangle as a menu bar icon. Uses the same shape
     /// and rotation as the in-app cursor so the menu bar icon matches.
-    private func makeClickyMenuBarIcon() -> NSImage {
+    private func makeCappyMenuBarIcon() -> NSImage {
         let iconSize: CGFloat = 18
         let image = NSImage(size: NSSize(width: iconSize, height: iconSize))
         image.lockFocus()
@@ -144,10 +144,10 @@ final class MenuBarPanelManager: NSObject {
     }
 
     private func createPanel() {
-        let companionPanelView = CompanionPanelView(companionManager: companionManager)
+        let cappyPanelView = CappyPanelView(cappyManager: cappyManager)
             .frame(width: panelWidth)
 
-        let hostingView = NSHostingView(rootView: companionPanelView)
+        let hostingView = NSHostingView(rootView: cappyPanelView)
         hostingView.frame = NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight)
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
@@ -224,8 +224,8 @@ final class MenuBarPanelManager: NSObject {
                 guard panel.isVisible else { return }
 
                 // If permissions aren't all granted yet, a system dialog
-                // may have focus — don't dismiss during onboarding.
-                if !self.companionManager.allPermissionsGranted && !NSApp.isActive {
+                // may have focus — keep the panel visible while permissions are requested.
+                if !self.cappyManager.allPermissionsGranted && !NSApp.isActive {
                     return
                 }
 
