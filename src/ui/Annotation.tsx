@@ -8,6 +8,7 @@ export type AnnotationProps = {
   frameAgeMs: number;
   status: 'negative' | 'below-reserve' | 'within-reserve';
   confirmed: boolean;
+  active?: boolean;
   warning?: string;
   onExpire?: () => void;
 };
@@ -17,8 +18,9 @@ export type CursorHaloProps = {
   y: number;
 };
 
-export function annotationCanRender(props: Pick<AnnotationProps, 'buttonBox' | 'frame' | 'frameAgeMs' | 'status' | 'confirmed'>): boolean {
-  return props.confirmed
+export function annotationCanRender(props: Pick<AnnotationProps, 'buttonBox' | 'frame' | 'frameAgeMs' | 'status' | 'confirmed' | 'active'>): boolean {
+  return props.active !== false
+    && props.confirmed
     && props.status === 'negative'
     && props.buttonBox !== null
     && props.frame !== null
@@ -35,14 +37,14 @@ export function CursorHalo({ x, y }: CursorHaloProps): ReactElement {
   return <span aria-hidden="true" className="cursor-halo" style={{ left: x + 16, top: y + 16 }} />;
 }
 
-export function Annotation({ buttonBox, frame, frameAgeMs, status, confirmed, warning = 'Purchase may take your balance below zero', onExpire }: AnnotationProps): ReactElement | null {
-  const canRender = annotationCanRender({ buttonBox, frame, frameAgeMs, status, confirmed });
+export function Annotation({ buttonBox, frame, frameAgeMs, status, confirmed, active = true, warning = 'Purchase may take your balance below zero', onExpire }: AnnotationProps): ReactElement | null {
+  const canRender = annotationCanRender({ buttonBox, frame, frameAgeMs, status, confirmed, active });
 
   useEffect(() => {
     if (!canRender || !onExpire) return undefined;
     const timer = window.setTimeout(onExpire, 5_000);
     return () => window.clearTimeout(timer);
-  }, [buttonBox, frame, frameAgeMs, status, confirmed, onExpire, canRender]);
+  }, [buttonBox, frame, frameAgeMs, status, confirmed, active, onExpire, canRender]);
 
   if (!canRender || !buttonBox || !frame) return null;
   const desktopBox = toDesktopRect(buttonBox, frame);

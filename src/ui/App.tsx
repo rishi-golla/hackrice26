@@ -49,6 +49,7 @@ export function createAnalysisCoordinator<TResult>(
 export type AppProps = {
   snapshot: SnapshotView;
   forecast: ForecastView;
+  candidateId?: string;
   cursor?: { x: number; y: number };
   workArea?: { x: number; y: number; width: number; height: number };
   annotation?: ComponentProps<typeof Annotation>;
@@ -56,9 +57,9 @@ export type AppProps = {
   onDismiss?: () => void;
 };
 
-export function App({ snapshot, forecast, cursor, workArea, annotation, onAmountChange, onDismiss }: AppProps): ReactElement {
+export function App({ snapshot, forecast, candidateId, cursor, workArea, annotation, onAmountChange, onDismiss }: AppProps): ReactElement {
   const [cardAnchor, setCardAnchor] = useState<{ key: string; x: number; y: number } | null>(null);
-  const candidateKey = `${forecast.purchaseCents}:${forecast.minimumDate}`;
+  const candidateKey = `${candidateId ?? 'candidate'}:${forecast.purchaseCents}:${forecast.minimumDate}`;
   const previousKey = useRef(candidateKey);
 
   useEffect(() => {
