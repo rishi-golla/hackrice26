@@ -1,5 +1,22 @@
 # Verification record
 
+## Persona verification gate — Rishi dev integration
+
+This branch preserves Rishi dev's cursor image, OCR, and hold-to-talk changes while adding the Persona Sandbox gate for account-sensitive data. Persona provider calls remain service-only; no identity-document payloads, provider responses, hosted URLs, or credentials are logged or persisted.
+
+Required private configuration names are `PERSONA_API_KEY`, `PERSONA_INQUIRY_TEMPLATE_ID`, `PERSONA_ENVIRONMENT=sandbox`, `PERSONA_ENVIRONMENT_ID`, `PERSONA_VERIFICATION_TTL_SECONDS`, and `FLICKY_DATA_MODE=synthetic`. Environment files were not inspected or modified. Sandbox verification unlocks synthetic data only; recorded/live modes remain denied.
+
+Automated integration checks passed on this Rishi-based branch:
+
+- `npm run typecheck`
+- `npm test`: 182 tests across 38 files
+- `npm run build`
+- `npm run test:e2e` with injected Persona responses
+- `node tests/e2e/verification-ui.mjs`
+- `node tests/e2e/verification-electron.mjs`
+
+The real Hosted Sandbox approved, failed, and abandoned flows still require manual testing with the privately configured template. The backend grants access only after an authoritative `approved` decision bound to the same authenticated session/request; `completed`, `needs_review`, cancellation, logout, expiry, and late responses remain locked.
+
 ## Automated checks — macOS, Apple Silicon (arm64), Node v22.15.1
 
 | Command | Result |

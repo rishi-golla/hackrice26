@@ -7,7 +7,9 @@ describe('authenticated service routes', () => {
   afterEach(async () => { await Promise.all(servers.splice(0).map(server => server.close())); });
   it('requires a local session and enforces its account binding', async () => {
     const token = 'service-token-that-is-at-least-32-bytes-long';
-    const server = buildServer({ sessionToken: token, accountIds: ['demo-checking'], mode: 'synthetic' }, { read: async () => demoSnapshot() }); servers.push(server);
+    const server = buildServer({ sessionToken: token, accountIds: ['demo-checking'], mode: 'synthetic' }, { read: async () => demoSnapshot() }, {
+      verification: { isConfigured: () => true, isApproved: () => true },
+    }); servers.push(server);
     const login = await server.inject({ method: 'POST', url: '/auth/login', headers: { authorization: `Bearer ${token}` }, payload: { email: 'demo@example.com', password: 'demo-password' } });
     expect(login.statusCode).toBe(200);
     const session = login.json<{ id: string }>();

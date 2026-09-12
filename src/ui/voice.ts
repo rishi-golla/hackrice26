@@ -1,4 +1,5 @@
 import type { Answer, CursorState, FlickyBridge } from '../shared/contracts';
+import { ServiceError } from '../shared/verification';
 
 export type RecorderLike = {
   state: 'inactive' | 'recording' | string;
@@ -131,6 +132,18 @@ export class VoiceTurnController {
     if (this.audio?.volume !== undefined) this.audio.volume = muted ? 0 : 1;
   }
 
+  public async readAloud(replyId: string): Promise<void> {
+    this.cancelLocal();
+    const generation = this.generation;
+    try {
+      this.setState('speaking');
+      const bytes = await this.bridge.speak(replyId);
+      if (generation === this.generation) await this.play(bytes, generation);
+    } catch (error) {
+      this.fail(generation, error instanceof Error ? error.message : 'Speech unavailable.');
+    }
+  }
+
   public async toggle(candidateId?: string): Promise<void> {
     if (this.isRecording()) this.stop();
     else await this.start(candidateId);
@@ -181,11 +194,17 @@ export class VoiceTurnController {
         this.suppressNextHostCancel = false;
       }
       if (generation !== this.generation) return;
+      // Account replies require a separate Read aloud click. Unknown sensitivity stays silent.
+      if (answer.sensitive !== false) {
+        this.setState(answer.state === 'clarifying' ? 'clarifying' : 'idle');
+        return;
+      }
       this.setState(answer.state === 'clarify' || answer.state === 'clarifying' ? 'clarifying' : 'speaking');
       const responseAudio = await this.bridge.speak(answer.replyId);
       if (generation !== this.generation) return;
       await this.play(responseAudio, generation);
     } catch (error) {
+      if (error instanceof ServiceError && error.code?.startsWith('verification_')) { this.setState('idle'); return; }
       this.fail(generation, error instanceof Error ? error.message : 'Voice turn failed. You can type your question instead.');
     }
   }

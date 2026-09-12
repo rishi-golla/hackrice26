@@ -1,4 +1,5 @@
 import type { Forecast, DataMode } from '../domain/types';
+import type { IpcResult, VerificationView } from './verification';
 
 export type CursorState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'clarifying' | 'error';
 export interface DisplayChoice { id: string; label: string }
@@ -13,6 +14,7 @@ export type CappySession = { id: string; userId: string; accountId: string; issu
 export interface Answer {
   turnId: string; replyId: string; state: string; text: string;
   forecast?: Forecast; scenario?: unknown;
+  sensitive?: boolean; verificationExpiresAt?: number;
 }
 export interface CandidateView {
   id: string; amountCents: number | null; sourceText: string;
@@ -23,6 +25,7 @@ export interface PassiveState {
   annotation?: { x: number; y: number; width: number; height: number };
 }
 export type DesktopEvent =
+  | { type: 'verification'; verification: VerificationView }
   | { type: 'config'; config: PublicConfig }
   | { type: 'candidate'; candidate: CandidateView }
   | { type: 'answer'; answer: Answer }
@@ -52,8 +55,15 @@ export interface FlickyBridge {
   consent(enabled: boolean): Promise<PublicConfig>;
   transcribe(audio: Uint8Array, mimeType: string, durationMs: number): Promise<string>;
   speak(replyId: string): Promise<Uint8Array>;
+  verificationStart(requestId: string): Promise<VerificationView>;
+  verificationStatus(requestId: string): Promise<VerificationView>;
+  verificationCancel(requestId: string): Promise<void>;
+  verificationResume(requestId: string): Promise<void>;
   state(state: CursorState): Promise<void>;
   onEvent(listener: (event: DesktopEvent) => void): () => void;
   onPassive(listener: (state: PassiveState) => void): () => void;
 }
-declare global { interface Window { flicky: FlickyBridge } }
+// Resolve plain envelopes across context isolation; custom Error fields do not survive it.
+export type FlickyTransport = { [K in keyof FlickyBridge]: FlickyBridge[K] extends (...args: infer A) => Promise<infer T>
+  ? (...args: A) => Promise<IpcResult<T>> : FlickyBridge[K] };
+declare global { interface Window { flicky: FlickyTransport } }
