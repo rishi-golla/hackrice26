@@ -13,6 +13,7 @@ export interface ServerConfig {
   sessionToken: string;
   accountIds: string[];
   mode: 'synthetic' | 'recorded-sandbox' | 'live-sandbox';
+  snapshotTtlMs?: number;
 }
 export interface ServiceDependencies {
   conversation?: ReturnType<typeof createConversationManager>;
@@ -31,7 +32,7 @@ const sessionInput = z.object({ sessionId: identifier }).strict();
 export function buildServer(config: ServerConfig, provider: SnapshotProvider, deps: ServiceDependencies = {}) {
   if (config.sessionToken.length < 32 || config.accountIds.length === 0) throw new Error('Invalid service configuration');
   const server = Fastify({ logger: false, bodyLimit: 14 * 1024 * 1024 });
-  const store = new SnapshotStore(provider);
+  const store = new SnapshotStore(provider, { ttlMs: config.snapshotTtlMs });
   const conversation = deps.conversation ?? createConversationManager();
   const auth = deps.auth ?? createDemoAuthProvider();
   const profiles = deps.profiles ?? new ProfileStore();
