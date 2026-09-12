@@ -66,12 +66,12 @@ Recognized amount: **$200.00, correct**, from the real "Order total: $200.00" te
 | Denied-permission recovery | Not exercised | Not attempted |
 | Global hold-to-talk (⌘⇧Space) | Registered without error at startup (`config.shortcutAvailable`); press/release not interactively exercised | Not attempted |
 | 100/125/200% scaling, negative origins | Covered by unit tests (`tests/desktop/coordinates.test.ts`); no physical multi-monitor/scaled rig tested | Not attempted |
-| Harmless Nessie read | **Blocked** — no live adapter exists at all; see `docs/provider-contracts.md` | N/A |
+| Harmless Nessie read | **Pass, empty sandbox** — a credentialed read returned HTTP 200 with zero customers; no writes were attempted. Adapter/provider/tool tests use fakes and do not constitute live-provider evidence. | N/A |
 | Speech request (ElevenLabs) | **Blocked** — no credentials in this checkout; provider code is unit-tested but never called live | Same, per teammate 3's report |
 | Schema-only router request | **Pass** — deterministic router, measured above at 0.3ms median | Same |
 | Packaged offline launch | **Pass** — see Task 3 | Not attempted (no artifact built, no device) |
 
-**Summary:** macOS toolchain, build, packaging, and now real screen-OCR all pass at the code level. What remains blocked is purely permission/credential/hardware-gated (live interactive confirmation needs Screen Recording permission on a real device; Nessie/ElevenLabs need credentials; Windows needs a device), each with a working fallback (synthetic mode, typed input).
+**Summary:** macOS toolchain, build, packaging, and now real screen-OCR all pass at the code level. Nessie authentication is verified read-only, but the supplied credential currently has zero customer rows, so populated live insights still require a sandbox customer/account mapping. Live interactive confirmation needs Screen Recording permission on a real device, ElevenLabs needs credentials, and Windows needs a device; synthetic mode and typed input remain available fallbacks.
 
 ## Task 2 — Persona sandbox mitigation: skipped, recorded as omitted
 
@@ -91,7 +91,7 @@ Entry condition ("verified Nessie transfer semantics exist, Persona sandbox/temp
 
 | Check | Expected | Evidence |
 |---|---|---|
-| Fresh launch | Monitoring off, synthetic mode visible | `PublicConfig.monitoring` defaults false; `mode` always `synthetic` while live is disabled |
+| Fresh launch | Monitoring off, configured data mode visible | `PublicConfig.monitoring` defaults false; synthetic remains the default, while a fully configured Nessie provider reports `live-sandbox` |
 | Hover $200 final total | Minimum −$80 on Sep 16 | `tests/domain/forecast.test.ts` (canonical fixture) + real OCR benchmark above agree: $200 purchase → minimum −8000 cents on 2026-09-16 |
 | Change amount to $10 → $110, within-reserve | `tests/domain/forecast.test.ts` | Pass |
 | Remove utilities, $200 → $0, below-reserve (never "negative") | `tests/domain/forecast.test.ts` | Pass |
@@ -121,7 +121,7 @@ Following `plans/2026-09-12-cursor-financial-bodyguard-demo.md`'s script, adjust
 5. **Second platform or honest gap (2:10–2:40):** No second device was available this session; say so rather than claiming Windows parity.
 6. **Contribution (2:40–3:00):** "Clicky inspired the cursor companion and its native macOS capture/voice stack. We built the purchase forecast engine, the OCR decision rules, the authenticated snapshot service, and the grounded conversation layer on top of it." See `docs/attribution.md` for the full breakdown.
 
-Use only Synthetic mode for this rehearsal — Live Nessie and live ElevenLabs are both disabled/unverified (see `docs/provider-contracts.md`). Never substitute a staged transfer or recording for a live integration claim.
+Use Synthetic mode for the populated rehearsal while the supplied Nessie credential has no customer rows. Nessie authentication is verified read-only, but live account insights require a mapped sandbox customer/account; live ElevenLabs remains disabled/unverified (see `docs/provider-contracts.md`). Never substitute a staged transfer or recording for a populated live integration claim.
 
 ## Native macOS note
 
@@ -130,9 +130,9 @@ Clicky's Xcode target is vendored under `macos/cappy/` (renamed from `macos/lean
 ## Final handoff
 
 - **Branch:** `Aastha-foundation-financial-engine`, merged through `main` at each of: Cappy rebrand + auth/tools (Abhijith Utla), ElevenLabs voice integration (teammate 3, PR #1), Part 2 capture/OCR/overlay (PR #2), the native macOS finance-only conversion follow-up, and the native global hold-to-talk adapter (`rishi-dev`).
-- **Provider availability:** Nessie — unavailable/unverified (403 during planning, no adapter built). ElevenLabs — implemented, credentials absent in every checkout so far. Persona — not attempted, entry condition fails.
+- **Provider availability:** Nessie — read-only adapter implemented; credentialed read returned HTTP 200 with zero customers, no writes attempted, and automated coverage uses fakes. ElevenLabs — implemented, credentials absent in every checkout so far. Persona — not attempted, entry condition fails.
 - **Measured latency:** 117ms median end-to-end (real OCR+extract+forecast+router), real pipeline, real screenshot, real production code path (no workaround) — see above. Well under the 3s target.
-- **Omitted features:** Persona-gated sandbox mitigation (by design, entry condition unmet). Live Nessie and live ElevenLabs (credential-gated, both have visible synthetic/typed fallbacks).
+- **Omitted features:** Persona-gated sandbox mitigation (by design, entry condition unmet). Populated live Nessie insights await a sandbox customer/account; live ElevenLabs remains credential-gated, with visible synthetic/typed fallbacks.
 - **Fixed this session:** the two OCR bugs that made real screen-hover capture non-functional (`src/desktop/recognize.ts`, `src/desktop/ocr/recognize.ts`) — see above for full diagnosis and verification.
 - **Still open, not fixed here:** the 4 known issues above (incomplete rebrand remnants, forecast UI not wired into `main.tsx`, native macOS finance tool unwired, Xcode build never validated).
 - **README:** unchanged, confirmed via `git diff origin/main -- README.md` (empty).

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { explain } from '../domain/explain';
+import { buildFinancialInsights } from '../domain/insights';
 import { evaluateScenario } from '../domain/scenario';
 import type { Forecast, HypotheticalPurchase, Snapshot } from '../domain/types';
 import { validateSnapshot } from '../domain/types';
@@ -71,7 +72,55 @@ export function createCappyToolRegistry(options: CappyToolRegistryOptions): InMe
     const parsed = accountInput.parse(input);
     return structuredClone(await options.snapshot(scoped(context, parsed.accountId)));
   };
+  const read = async (input: unknown, context: CappyToolContext) => {
+    const parsed = accountInput.parse(input);
+    const accountId = scoped(context, parsed.accountId);
+    return { accountId, snapshot: validateSnapshot(await options.snapshot(accountId)) };
+  };
   registry.register({ name: 'getSnapshot', description: 'Read the current account snapshot.', policy, execute: get });
+  registry.register({
+    name: 'getAccountSummary', description: 'Read the current account balance, metadata, and data coverage.', policy,
+    async execute(input, context) {
+      const { accountId, snapshot } = await read(input, context);
+      return structuredClone({
+        accountId,
+        balanceCents: snapshot.balanceCents,
+        mode: snapshot.mode,
+        asOf: snapshot.asOf,
+        complete: snapshot.complete,
+        stale: snapshot.stale,
+        sources: snapshot.sources ?? [],
+        ...(snapshot.accountType ? { accountType: snapshot.accountType } : {}),
+        ...(snapshot.accountNickname ? { accountNickname: snapshot.accountNickname } : {}),
+        ...(snapshot.accountLast4 ? { accountLast4: snapshot.accountLast4 } : {}),
+        ...(snapshot.rewardsPoints !== undefined ? { rewardsPoints: snapshot.rewardsPoints } : {}),
+      });
+    },
+  });
+  registry.register({
+    name: 'getUpcomingBills', description: 'Read deterministic upcoming bills for the account.', policy,
+    async execute(input, context) {
+      const { accountId, snapshot } = await read(input, context);
+      const insights = buildFinancialInsights(snapshot, context.profile.reserveCents);
+      return structuredClone({
+        accountId,
+        mode: snapshot.mode,
+        asOf: snapshot.asOf,
+        complete: snapshot.complete,
+        stale: snapshot.stale,
+        sources: insights.coverage.sources,
+        upcomingBills: insights.upcomingBills,
+      });
+    },
+  });
+  registry.register({
+    name: 'getFinancialInsights', description: 'Read deterministic financial insights for the account.', policy,
+    async execute(input, context) {
+      const { accountId, snapshot } = await read(input, context);
+      const insights = buildFinancialInsights(snapshot, context.profile.reserveCents);
+      return structuredClone({ accountId, mode: snapshot.mode, asOf: snapshot.asOf, insights });
+    },
+  });
   registry.register({
     name: 'forecastPurchase', description: 'Forecast one hypothetical purchase against the account.', policy,
     async execute(input, context) {

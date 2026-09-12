@@ -8,7 +8,15 @@ const context = { session: { id: 's', userId: 'u', accountId: 'demo-checking', i
 describe('Cappy tool registry', () => {
   const registry = createCappyToolRegistry({ snapshot: async accountId => ({ ...demoSnapshot(), accountId }) });
   it('exposes only read-only finance tools and rejects unknown tools', async () => {
-    expect(registry.names()).toEqual(['getSnapshot', 'forecastPurchase', 'compareScenario', 'explainForecast']);
+    expect(registry.names()).toEqual([
+      'getSnapshot',
+      'getAccountSummary',
+      'getUpcomingBills',
+      'getFinancialInsights',
+      'forecastPurchase',
+      'compareScenario',
+      'explainForecast',
+    ]);
     await expect(registry.call('transferMoney', {}, context)).rejects.toMatchObject({ statusCode: 404 });
   });
   it('enforces account scope, session validity, and integer cents', async () => {
