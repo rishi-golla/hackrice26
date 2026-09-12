@@ -6,14 +6,15 @@ export type Rect = {
 };
 
 export type Frame = {
-  id: string;
-  capturedAt: number;
+  id?: string;
+  capturedAt?: number;
   displayId: string;
   bounds: Rect;
   workArea: Rect;
   imageWidth: number;
   imageHeight: number;
-  png: Uint8Array;
+  scaleFactor?: number;
+  png?: Uint8Array;
 };
 
 export type CursorSample = {
@@ -42,5 +43,6 @@ export type PurchaseCandidate = {
     | 'missing-total'
     | 'missing-button'
     | 'unsupported-currency'
-    | 'low-confidence';
+    | 'low-confidence'
+    | 'stale-frame';
 };

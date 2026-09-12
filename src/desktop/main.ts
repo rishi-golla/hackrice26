@@ -108,7 +108,7 @@ async function capture() {
       await request('/candidate', { sessionId, purchase: { id, label: 'Screen purchase', cents: candidate.amountCents, date: snapshot.today, origin: 'screen', confirmed: false } });
       const answer = await analyze('Can I afford this?', id, false, true);
       // analyze invalidates old captures; current coordinates must still be fresh.
-      if (answer.forecast?.status === 'negative' && candidate.buttonBox && Date.now() - frame.capturedAt <= 3000 && config.monitoring) {
+      if (answer.forecast?.status === 'negative' && candidate.buttonBox && frame.capturedAt !== undefined && Date.now() - frame.capturedAt <= 3000 && config.monitoring) {
         annotation = { x: candidate.buttonBox.x - 6, y: candidate.buttonBox.y - 6, width: candidate.buttonBox.width + 12, height: candidate.buttonBox.height + 12 };
         annotationExpires = Date.now() + 5000;
       }

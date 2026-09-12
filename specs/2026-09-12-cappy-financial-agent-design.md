@@ -1,7 +1,7 @@
 # Cappy Financial Agent Design
 
-**Status:** Approved for implementation  
-**Date:** 2026-09-12  
+**Status:** Approved for implementation
+**Date:** 2026-09-12
 **Product:** Cappy, a Capital One themed conversational financial companion
 
 ## Goal
