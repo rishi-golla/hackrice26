@@ -1,44 +1,30 @@
-import { addCalendarDays, dateInInclusiveRange } from './dates.js';
-import { buildForecast } from './forecast.js';
-import type { Forecast, Snapshot } from './types.js';
-import type { HypotheticalPurchase } from '../service/conversation/types.js';
+import { addDays, isISODate } from './calendar';
+import { forecastWithPurchases } from './forecast';
+import { assertSafeCents } from './money';
+import type { Forecast, HypotheticalPurchase, Snapshot } from './types';
 
-export type { HypotheticalPurchase };
-
-function validatePurchaseDates(snapshot: Snapshot, purchases: readonly HypotheticalPurchase[]): void {
-  const lastDate = addCalendarDays(snapshot.today, 13);
-  const ids = new Set<string>();
-  for (const purchase of purchases) {
-    if (ids.has(purchase.id)) {
-      throw new Error(`Duplicate purchase ID: ${purchase.id}`);
-    }
-    ids.add(purchase.id);
-    if (!purchase.id || !purchase.label) {
-      throw new Error('Scenario purchases require an ID and label.');
-    }
-    if (!Number.isSafeInteger(purchase.cents) || purchase.cents <= 0) {
-      throw new Error('Scenario purchase cents must be a positive safe integer.');
-    }
-    if (!dateInInclusiveRange(purchase.date, snapshot.today, lastDate)) {
-      throw new Error(`Purchase date is outside the forecast horizon: ${purchase.date}`);
-    }
-  }
-}
+export type { HypotheticalPurchase } from './types';
 
 export function evaluateScenario(
   snapshot: Snapshot,
-  purchases: readonly HypotheticalPurchase[],
+  purchases: HypotheticalPurchase[],
   reserveCents: number,
 ): Forecast {
-  validatePurchaseDates(snapshot, purchases);
-  return buildForecast(
-    snapshot,
-    purchases.map((purchase) => ({
-      id: `hypothetical:${purchase.id}`,
-      label: purchase.label,
-      date: purchase.date,
-      cents: -purchase.cents,
-    })),
-    reserveCents,
-  );
+  if (!Array.isArray(purchases)) throw new Error('Purchases must be an array');
+  const horizonEnd = addDays(snapshot.today, 13);
+  const ids = new Set<string>();
+
+  for (const purchase of purchases) {
+    if (typeof purchase !== 'object' || purchase === null) throw new Error('Purchase must be an object');
+    if (typeof purchase.id !== 'string' || purchase.id.trim() === '') throw new Error('Purchase id is required');
+    if (ids.has(purchase.id)) throw new Error(`Duplicate purchase id: ${purchase.id}`);
+    ids.add(purchase.id);
+    if (typeof purchase.label !== 'string' || purchase.label.trim() === '') throw new Error('Purchase label is required');
+    assertSafeCents(purchase.cents, 'Purchase cents', { positive: true });
+    if (!isISODate(purchase.date) || purchase.date < snapshot.today || purchase.date > horizonEnd) {
+      throw new Error(`Purchase date must be inside the forecast horizon: ${purchase.date}`);
+    }
+  }
+
+  return forecastWithPurchases(snapshot, purchases.map(purchase => ({ ...purchase })), reserveCents);
 }

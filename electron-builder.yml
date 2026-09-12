@@ -1,0 +1,19 @@
+appId: com.abhijithutla.cappy.desktop
+productName: Cappy
+directories:
+  output: release
+files:
+  - dist/**/*
+  - package.json
+asarUnpack:
+  - node_modules/tesseract.js/**
+  - node_modules/tesseract.js-core/**
+  - dist/ocr/**
+mac:
+  category: public.app-category.finance
+  identity: null
+  extendInfo:
+    NSMicrophoneUsageDescription: Cappy records only when you activate voice input.
+    NSScreenCaptureUsageDescription: Cappy reads checkout totals locally when you enable screen analysis.
+win:
+  target: dir

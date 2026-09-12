@@ -1,11 +1,11 @@
-import type { Snapshot } from '../domain/types.js';
+import type { Snapshot } from '../domain/types';
 
 export function demoSnapshot(): Snapshot {
   return {
     accountId: 'demo-checking',
-    balanceCents: 80_000,
+    balanceCents: 80000,
     currency: 'USD',
-    asOf: '2026-09-12T09:00:00-05:00',
+    asOf: '2026-09-12T14:00:00.000Z',
     today: '2026-09-12',
     timezone: 'America/Chicago',
     mode: 'synthetic',
@@ -13,36 +13,18 @@ export function demoSnapshot(): Snapshot {
     stale: false,
     events: [
       {
-        id: 'rent-2026-09-14',
-        sourceId: 'rent',
-        date: '2026-09-14',
-        cents: -60_000,
-        label: 'Rent',
-        kind: 'bill',
-        confidence: 'confirmed',
-        reflectedInBalance: false,
+        id: 'rent-2026-09', sourceId: 'rent', date: '2026-09-14', cents: -60000,
+        label: 'Rent', kind: 'bill', confidence: 'scheduled', reflectedInBalance: false,
         cancelled: false,
       },
       {
-        id: 'utilities-2026-09-16',
-        sourceId: 'utilities',
-        date: '2026-09-16',
-        cents: -8_000,
-        label: 'Utilities',
-        kind: 'bill',
-        confidence: 'confirmed',
-        reflectedInBalance: false,
+        id: 'utilities-2026-09', sourceId: 'utilities', date: '2026-09-16', cents: -8000,
+        label: 'Utilities', kind: 'bill', confidence: 'scheduled', reflectedInBalance: false,
         cancelled: false,
       },
       {
-        id: 'paycheck-2026-09-19',
-        sourceId: 'paycheck',
-        date: '2026-09-19',
-        cents: 100_000,
-        label: 'Scheduled paycheck',
-        kind: 'income',
-        confidence: 'confirmed',
-        reflectedInBalance: false,
+        id: 'income-2026-09-19', sourceId: 'income', date: '2026-09-19', cents: 100000,
+        label: 'Scheduled income', kind: 'income', confidence: 'scheduled', reflectedInBalance: false,
         cancelled: false,
       },
     ],

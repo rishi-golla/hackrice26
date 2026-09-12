@@ -1,79 +1,102 @@
+import { createRequire } from 'node:module';
+
+export type TalkHotkeyKeyCodes = {
+  controlLeft: number;
+  controlRight: number;
+  space: number;
+};
+
+export type TalkHotkeyHook = {
+  on(event: 'keydown' | 'keyup', listener: (event: { keycode: number }) => void): unknown;
+  removeListener(event: 'keydown' | 'keyup', listener: (event: { keycode: number }) => void): unknown;
+  start(): void;
+  stop(): void;
+};
+
 export type TalkHotkeyHandlers = {
-  down(event: { repeat: boolean }): void;
-  up(): void;
-  escape(): void;
-  suspend(): void;
-  permissionLost(): void;
+  press(): void;
+  release(): void;
 };
 
-export type TalkHotkeyAdapter = {
-  supportsKeyRelease: boolean;
-  canRegister?: (binding: string) => boolean;
-  register(binding: string, handlers: TalkHotkeyHandlers): () => void;
-};
-
-export type TalkHotkeyOptions = {
-  binding?: string;
-  onCancel?: (reason: 'escape' | 'suspend' | 'permission-loss') => void;
-};
-
-export function registerTalkHotkey(
-  onPress: () => void,
-  onRelease: () => void,
-  adapter: TalkHotkeyAdapter,
-  options: TalkHotkeyOptions = {},
+/**
+ * Converts global key transitions into one press/release pair. Keeping this
+ * state machine separate makes auto-repeat and either-control-key handling
+ * deterministic and testable without opening a native input hook.
+ */
+export function registerHoldToTalk(
+  hook: TalkHotkeyHook,
+  keys: TalkHotkeyKeyCodes,
+  handlers: TalkHotkeyHandlers,
 ): () => void {
-  const binding = options.binding ?? 'Control+Space';
-  if (adapter.canRegister && !adapter.canRegister(binding)) {
-    throw new Error(`Hotkey collision: ${binding}`);
-  }
-
+  let controlDown = false;
+  let spaceDown = false;
   let active = false;
   let disposed = false;
 
-  const stop = (reason?: 'escape' | 'suspend' | 'permission-loss') => {
-    if (!active) {
-      return;
-    }
+  const release = () => {
+    if (!active) return;
     active = false;
-    onRelease();
-    if (reason) {
-      options.onCancel?.(reason);
+    handlers.release();
+  };
+
+  const onKeyDown = ({ keycode }: { keycode: number }) => {
+    if (disposed) return;
+    if (keycode === keys.controlLeft || keycode === keys.controlRight) controlDown = true;
+    if (keycode === keys.space) spaceDown = true;
+    if (controlDown && spaceDown && !active) {
+      active = true;
+      handlers.press();
     }
   };
 
-  const handlers: TalkHotkeyHandlers = {
-    down: ({ repeat }) => {
-      if (disposed || repeat) {
-        return;
-      }
-      if (!adapter.supportsKeyRelease && active) {
-        stop();
-        return;
-      }
-      if (!active) {
-        active = true;
-        onPress();
-      }
-    },
-    up: () => {
-      if (disposed || !adapter.supportsKeyRelease) {
-        return;
-      }
-      stop();
-    },
-    escape: () => stop('escape'),
-    suspend: () => stop('suspend'),
-    permissionLost: () => stop('permission-loss'),
+  const onKeyUp = ({ keycode }: { keycode: number }) => {
+    if (disposed) return;
+    if (keycode === keys.controlLeft || keycode === keys.controlRight) controlDown = false;
+    if (keycode === keys.space) spaceDown = false;
+    if (!controlDown || !spaceDown) release();
   };
 
-  const cleanupAdapter = adapter.register(binding, handlers);
+  hook.on('keydown', onKeyDown);
+  hook.on('keyup', onKeyUp);
   return () => {
-    if (disposed) {
-      return;
-    }
-    stop();
+    if (disposed) return;
     disposed = true;
-    cleanupAdapter();
+    release();
+    hook.removeListener('keydown', onKeyDown);
+    hook.removeListener('keyup', onKeyUp);
   };
+}
+
+type NativeHookModule = {
+  uIOhook: TalkHotkeyHook;
+  UiohookKey: { Ctrl: number; CtrlRight: number; Space: number };
+};
+
+/**
+ * Starts the cross-platform native hook when its prebuilt N-API binding is
+ * available. The caller can fall back to Electron's toggle shortcut when the
+ * OS denies global input-hook access or the native module is unavailable.
+ */
+export function registerNativeHoldToTalk(handlers: TalkHotkeyHandlers): (() => void) | undefined {
+  try {
+    const require = createRequire(__filename);
+    const native = require('uiohook-napi') as NativeHookModule;
+    const cleanup = registerHoldToTalk(native.uIOhook, {
+      controlLeft: native.UiohookKey.Ctrl,
+      controlRight: native.UiohookKey.CtrlRight,
+      space: native.UiohookKey.Space,
+    }, handlers);
+    try {
+      native.uIOhook.start();
+    } catch {
+      cleanup();
+      return undefined;
+    }
+    return () => {
+      cleanup();
+      native.uIOhook.stop();
+    };
+  } catch {
+    return undefined;
+  }
 }

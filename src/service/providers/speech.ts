@@ -1,236 +1,67 @@
-const ELEVENLABS_BASE_URL = 'https://api.elevenlabs.io/v1';
+export class ProviderUnavailableError extends Error { constructor(message: string) { super(message); this.name = 'ProviderUnavailableError'; } }
+const allowed = new Set(['audio/webm', 'audio/webm;codecs=opus', 'audio/ogg', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/wav']);
+const elevenLabsAllowed = new Set([...allowed, 'audio/x-wav', 'audio/mpeg']);
 
-const ALLOWED_AUDIO_MIME_TYPES = new Set([
-  'audio/mp4',
-  'audio/mpeg',
-  'audio/ogg',
-  'audio/wav',
-  'audio/webm',
-  'audio/x-wav',
-]);
-
-export type SpeechErrorCode =
-  | 'invalid-audio'
-  | 'unknown-reply'
-  | 'authentication'
-  | 'rate-limit'
-  | 'timeout'
-  | 'cancelled'
-  | 'unavailable'
-  | 'provider-response'
-  | 'network';
-
-export class SpeechProviderError extends Error {
-  public readonly name = 'SpeechProviderError';
-
-  public constructor(
-    public readonly code: SpeechErrorCode,
-    message: string,
-    public readonly status?: number,
-  ) {
-    super(message);
-  }
-}
-
-export type SpeechProviderConfig = {
-  apiKey: string;
-  voiceId: string;
-  sttModelId: string;
-  ttsModelId: string;
-  outputFormat: string;
-  timeoutMs: number;
-  maxAudioBytes: number;
-  zeroRetention: boolean;
+type SpeechFetchOptions = {
+  apiKey?: string;
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+  zeroRetention?: boolean;
+  modelId?: string;
 };
 
-export type GeneratedReply = {
-  text: string;
-};
-
-type FetchImplementation = (input: string | URL, init?: RequestInit) => Promise<Response>;
-
-type SpeechProviderOptions = {
-  config: SpeechProviderConfig;
-  replies?: ReadonlyMap<string, GeneratedReply>;
-  fetchImpl?: FetchImplementation;
-};
-
-export type SpeechProvider = {
-  transcribe(audio: Uint8Array, mime: string, signal?: AbortSignal): Promise<string>;
-  synthesize(replyId: string, signal?: AbortSignal): Promise<Uint8Array>;
-};
-
-function createRequestUrl(path: string, query: Record<string, string | undefined>): string {
-  const url = new URL(`${ELEVENLABS_BASE_URL}${path}`);
-  for (const [key, value] of Object.entries(query)) {
-    if (value !== undefined) {
-      url.searchParams.set(key, value);
-    }
-  }
-  return url.toString();
-}
-
-function providerErrorFromStatus(status: number, operation: string): SpeechProviderError {
-  if (status === 401 || status === 403) {
-    return new SpeechProviderError(
-      'authentication',
-      `ElevenLabs ${operation} authentication was rejected.`,
-      status,
-    );
-  }
-  if (status === 429) {
-    return new SpeechProviderError(
-      'rate-limit',
-      `ElevenLabs ${operation} was rate limited.`,
-      status,
-    );
-  }
-  if (status >= 500) {
-    return new SpeechProviderError(
-      'unavailable',
-      `ElevenLabs ${operation} is unavailable.`,
-      status,
-    );
-  }
-  return new SpeechProviderError(
-    'provider-response',
-    `ElevenLabs ${operation} failed with HTTP ${status}.`,
-    status,
-  );
-}
-
-async function requestWithDeadline(
-  fetchImpl: FetchImplementation,
+async function fetchWithDeadline(
+  fetcher: typeof fetch,
   input: string,
   init: RequestInit,
   timeoutMs: number,
-  signal: AbortSignal | undefined,
   operation: string,
 ): Promise<Response> {
   const controller = new AbortController();
-  const abortFromCaller = () => controller.abort(signal?.reason);
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  signal?.addEventListener('abort', abortFromCaller, { once: true });
-
   try {
-    return await fetchImpl(input, { ...init, signal: controller.signal });
+    return await fetcher(input, { ...init, signal: controller.signal });
   } catch (error) {
-    if (signal?.aborted) {
-      throw new SpeechProviderError('cancelled', `ElevenLabs ${operation} was cancelled.`);
-    }
-    if (controller.signal.aborted) {
-      throw new SpeechProviderError('timeout', `ElevenLabs ${operation} timed out.`);
-    }
-    throw new SpeechProviderError('network', `ElevenLabs ${operation} could not be reached.`);
+    if (controller.signal.aborted) throw new Error(`ElevenLabs ${operation} timed out`);
+    throw error;
   } finally {
     clearTimeout(timer);
-    signal?.removeEventListener('abort', abortFromCaller);
   }
 }
 
-async function readJson(response: Response, operation: string): Promise<Record<string, unknown>> {
-  try {
-    const value: unknown = await response.json();
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-      throw new Error('not an object');
-    }
-    return value as Record<string, unknown>;
-  } catch {
-    throw new SpeechProviderError(
-      'provider-response',
-      `ElevenLabs returned an invalid ${operation} response.`,
-      response.status,
-    );
-  }
+function validateSpeechAudio(audio: Uint8Array, mime: string, durationMs: number, allowedMimes: Set<string>) {
+  if (audio.byteLength > 10 * 1024 * 1024) throw new Error('Audio exceeds 10 MB');
+  if (durationMs > 30_000) throw new Error('Audio exceeds 30 seconds');
+  if (!allowedMimes.has(mime)) throw new Error('Unsupported audio MIME type');
 }
 
-export function createElevenLabsSpeechProvider({
-  config,
-  replies = new Map(),
-  fetchImpl = (input, init) => fetch(input, init),
-}: SpeechProviderOptions): SpeechProvider {
-  const authHeaders = { 'xi-api-key': config.apiKey };
-
+export function createElevenLabsTranscriber(options: SpeechFetchOptions) {
   return {
-    async transcribe(audio, mime, signal) {
-      if (
-        audio.byteLength === 0 ||
-        audio.byteLength > config.maxAudioBytes ||
-        !ALLOWED_AUDIO_MIME_TYPES.has(mime)
-      ) {
-        throw new SpeechProviderError(
-          'invalid-audio',
-          'Audio must use an allowed MIME type and stay within the configured size limit.',
-        );
-      }
+    async transcribe(audio: Uint8Array, mime: string, durationMs: number) {
+      if (!options.apiKey) throw new ProviderUnavailableError('ElevenLabs unavailable: API key missing');
+      validateSpeechAudio(audio, mime, durationMs, elevenLabsAllowed);
 
       const audioBuffer = new ArrayBuffer(audio.byteLength);
       new Uint8Array(audioBuffer).set(audio);
       const form = new FormData();
-      form.append('file', new Blob([audioBuffer], { type: mime }), 'conversation-audio');
-      form.append('model_id', config.sttModelId);
-      const url = createRequestUrl('/speech-to-text', {
-        enable_logging: config.zeroRetention ? 'false' : undefined,
-      });
-      const response = await requestWithDeadline(
-        fetchImpl,
-        url,
-        { method: 'POST', headers: authHeaders, body: form },
-        config.timeoutMs,
-        signal,
+      form.append('file', new Blob([audioBuffer], { type: mime }), 'voice-input');
+      form.append('model_id', options.modelId ?? 'scribe_v2');
+      const url = new URL('https://api.elevenlabs.io/v1/speech-to-text');
+      if (options.zeroRetention) url.searchParams.set('enable_logging', 'false');
+      const response = await fetchWithDeadline(
+        options.fetchImpl ?? fetch,
+        url.toString(),
+        { method: 'POST', headers: { 'xi-api-key': options.apiKey }, body: form },
+        options.timeoutMs ?? 15_000,
         'transcription',
       );
-      if (!response.ok) {
-        throw providerErrorFromStatus(response.status, 'transcription');
-      }
-      const body = await readJson(response, 'transcription');
-      if (typeof body.text !== 'string') {
-        throw new SpeechProviderError(
-          'provider-response',
-          'ElevenLabs transcription did not include text.',
-          response.status,
-        );
-      }
-      return body.text;
-    },
-
-    async synthesize(replyId, signal) {
-      const reply = replies.get(replyId);
-      if (!reply) {
-        throw new SpeechProviderError(
-          'unknown-reply',
-          'The requested reply is not owned by the conversation service.',
-        );
-      }
-
-      const url = createRequestUrl(`/text-to-speech/${encodeURIComponent(config.voiceId)}/stream`, {
-        output_format: config.outputFormat,
-        enable_logging: config.zeroRetention ? 'false' : undefined,
-      });
-      const response = await requestWithDeadline(
-        fetchImpl,
-        url,
-        {
-          method: 'POST',
-          headers: { ...authHeaders, 'content-type': 'application/json' },
-          body: JSON.stringify({ text: reply.text, model_id: config.ttsModelId }),
-        },
-        config.timeoutMs,
-        signal,
-        'synthesis',
-      );
-      if (!response.ok) {
-        throw providerErrorFromStatus(response.status, 'synthesis');
-      }
-      const audio = new Uint8Array(await response.arrayBuffer());
-      if (audio.byteLength === 0) {
-        throw new SpeechProviderError(
-          'provider-response',
-          'ElevenLabs synthesis returned no audio.',
-          response.status,
-        );
-      }
-      return audio;
+      if (!response.ok) throw new Error(`ElevenLabs transcription failed with HTTP ${response.status}`);
+      const body = await response.json() as { text?: unknown };
+      if (typeof body.text !== 'string') throw new Error('ElevenLabs transcription returned no text');
+      return body.text.trim();
     },
   };
 }
+
+export function createAssemblyAITranscriber(options: { apiKey?: string; fetchImpl?: typeof fetch; timeoutMs?: number; pollIntervalMs?: number }) { return { async transcribe(audio: Uint8Array, mime: string, durationMs: number) { if (!options.apiKey) throw new ProviderUnavailableError('AssemblyAI unavailable: API key missing'); if (audio.byteLength > 10 * 1024 * 1024) throw new Error('Audio exceeds 10 MB'); if (durationMs > 30_000) throw new Error('Audio exceeds 30 seconds'); if (!allowed.has(mime)) throw new Error('Unsupported audio MIME type'); const fetcher = options.fetchImpl ?? fetch; const headers = { authorization: options.apiKey, 'content-type': mime }; const upload = await fetcher('https://api.assemblyai.com/v2/upload', { method: 'POST', headers, body: audio as unknown as BodyInit }); if (!upload.ok) throw new Error('Audio upload failed'); const uploadUrl = (await upload.json() as { upload_url: string }).upload_url; const created = await fetcher('https://api.assemblyai.com/v2/transcript', { method: 'POST', headers: { authorization: options.apiKey, 'content-type': 'application/json' }, body: JSON.stringify({ audio_url: uploadUrl }) }); const job = await created.json() as { id: string }; for (;;) { const result = await fetcher(`https://api.assemblyai.com/v2/transcript/${job.id}`, { headers: { authorization: options.apiKey } }); const value = await result.json() as { status: string; text?: string; error?: string }; if (value.status === 'completed') return value.text ?? ''; if (value.status === 'error') throw new Error(value.error ?? 'Transcription failed'); await new Promise(resolve => setTimeout(resolve, options.pollIntervalMs ?? 500)); } } }; }
+export function createElevenLabsSynthesizer(options: SpeechFetchOptions & { voiceId?: string }) { return { async synthesizeValidatedReply(text: string) { if (!options.apiKey || !options.voiceId) throw new ProviderUnavailableError('ElevenLabs unavailable: credentials missing'); if (!text.trim() || text.length > 4000) throw new Error('Invalid reply text'); const url = new URL(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(options.voiceId)}/stream?output_format=mp3_44100_128`); if (options.zeroRetention) url.searchParams.set('enable_logging', 'false'); const response = await fetchWithDeadline(options.fetchImpl ?? fetch, url.toString(), { method: 'POST', headers: { 'xi-api-key': options.apiKey, 'content-type': 'application/json' }, body: JSON.stringify({ text, ...(options.modelId ? { model_id: options.modelId } : {}) }) }, options.timeoutMs ?? 15_000, 'synthesis'); if (!response.ok) throw new Error(`ElevenLabs synthesis failed with HTTP ${response.status}`); const audio = new Uint8Array(await response.arrayBuffer()); if (audio.byteLength === 0) throw new Error('ElevenLabs synthesis returned no audio'); return audio; } }; }

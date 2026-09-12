@@ -1,149 +1,39 @@
 import { z } from 'zod';
-import type {
-  ConversationSession,
-  Intent,
-  IntentRouterContext,
-  IntentRouterProvider,
-  RouterReference,
-} from './types.js';
-
-const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-
-const evaluateSchema = z
-  .object({
-    kind: z.literal('evaluate'),
-    purchaseIds: z.array(z.string().min(1)).max(10),
-    amountCents: z.number().int().nonnegative().optional(),
-    date: dateSchema.optional(),
-  })
-  .strict();
-
-const rememberSchema = z
-  .object({
-    kind: z.literal('remember'),
-    purchaseId: z.string().min(1),
-  })
-  .strict();
-
-const explainSchema = z.object({ kind: z.literal('explain') }).strict();
-const forgetSchema = z.object({ kind: z.literal('forget') }).strict();
-const clarifySchema = z
-  .object({
-    kind: z.literal('clarify'),
-    question: z.string().min(1).max(500),
-  })
-  .strict();
-const unsupportedSchema = z.object({ kind: z.literal('unsupported') }).strict();
-
+import { addDays } from '../../domain/calendar';
+import { parseUSD } from '../../domain/money';
+import type { Intent, IntentRouter, RouterInput } from './types';
 export const intentSchema = z.discriminatedUnion('kind', [
-  evaluateSchema,
-  rememberSchema,
-  explainSchema,
-  forgetSchema,
-  clarifySchema,
-  unsupportedSchema,
+  z.object({ kind: z.literal('evaluate'), purchaseIds: z.array(z.string()).default([]), amountCents: z.number().int().nonnegative().optional(), date: z.string().optional() }).strict(),
+  z.object({ kind: z.literal('remember'), purchaseId: z.string() }).strict(), z.object({ kind: z.literal('explain') }).strict(), z.object({ kind: z.literal('forget') }).strict(), z.object({ kind: z.literal('clarify'), question: z.string() }).strict(), z.object({ kind: z.literal('unsupported') }).strict(),
 ]);
-
-export type IntentRouterErrorCode = 'invalid-input' | 'invalid-output' | 'unknown-reference' | 'provider-failed';
-
-export class IntentRouterError extends Error {
-  public readonly name = 'IntentRouterError';
-
-  public constructor(
-    public readonly code: IntentRouterErrorCode,
-    message: string,
-    options?: ErrorOptions,
-  ) {
-    super(message, options);
-  }
+const money = (text: string) => { const match = text.match(/\$\s*([0-9][\d,]*(?:\.\d{1,2})?)|\b([0-9][\d,]*(?:\.\d{1,2})?)\s*(?:dollars?|usd)\b/i); const value = match?.[1] ?? match?.[2]; if (value) { try { return parseUSD(`$${value}`); } catch { return undefined; } } const words: Record<string, number> = { ten: 10, twenty: 20, thirty: 30, forty: 40, fifty: 50, one: 1, five: 5 }; const spoken = text.match(new RegExp(`\\b(${Object.keys(words).join('|')})\\s+dollars?\\b`, 'i')); return spoken ? words[spoken[1].toLowerCase()] * 100 : undefined; };
+function dateFrom(text: string, input: RouterInput): string | undefined {
+  const iso = text.match(/\b(\d{4}-\d{2}-\d{2})\b/)?.[1]; if (iso) return iso;
+  const lower = text.toLowerCase(); if (/\btoday\b/.test(lower)) return input.today;
+  const month = lower.match(/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})\b/);
+  if (month) { const parsed = new Date(`${month[0]} ${new Date(`${input.today}T00:00:00Z`).getUTCFullYear()} UTC`); if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10); }
+  const weekdays = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']; const index = weekdays.findIndex(day => lower.includes(day)); if (index < 0) return undefined;
+  const baseDate = /\bthen\b/.test(lower) && input.lastScenario[0]?.date ? input.lastScenario[0].date : input.today;
+  const today = new Date(`${baseDate}T00:00:00Z`).getUTCDay(); let delta = (index - today + 7) % 7;
+  if (/next\s+/.test(lower) && delta === 0) delta = 7; if (/next\s+/.test(lower) && delta < 7) delta += 7;
+  return addDays(baseDate, delta);
 }
-
-const ALLOWED_INTENTS: readonly Intent['kind'][] = [
-  'evaluate',
-  'remember',
-  'explain',
-  'forget',
-  'clarify',
-  'unsupported',
-];
-
-function toRouterReferences(
-  session: ConversationSession,
-  context: IntentRouterContext,
-): RouterReference[] {
-  const references = new Map<string, ConversationSession['references'][number]>();
-  for (const reference of [...session.references.filter((reference) => reference.confirmed), ...(context.freshReferences ?? [])]) {
-    if (!references.has(reference.id)) {
-      references.set(reference.id, reference);
-    }
+export async function routeIntent(input: RouterInput): Promise<Intent> {
+  const lower = input.text.toLowerCase().trim();
+  if (/forget|clear (?:this|the) conversation/.test(lower)) return { kind: 'forget' };
+  if (/^why\b|explain/.test(lower)) return { kind: 'explain' };
+  if (/send|transfer|pay someone|execute/.test(lower)) return { kind: 'unsupported' };
+  if (/remember/.test(lower)) return { kind: 'remember', purchaseId: input.candidates[0]?.id ?? input.references[0]?.id ?? '' };
+  const amountCents = money(lower); const date = dateFrom(lower, input);
+  if (amountCents !== undefined || date || /afford|buy|purchase|what if|can i|\bboth\b|estimate|earlier/.test(lower)) {
+    const ids = /both/.test(lower) ? input.references.map(ref => ref.id) : input.lastScenario.length ? [input.lastScenario[0].id] : [];
+    return { kind: 'evaluate', purchaseIds: ids, ...(amountCents === undefined ? {} : { amountCents }), ...(date ? { date } : {}) };
   }
-  return [...references.values()]
-    .map((reference) => ({
-      id: reference.id,
-      label: JSON.stringify(reference.label),
-      cents: reference.cents,
-      date: reference.date,
-      origin: reference.origin,
-    }));
+  return { kind: 'unsupported' };
 }
-
-function validateReferenceIds(
-  intent: Intent,
-  session: ConversationSession,
-  context: IntentRouterContext,
-): void {
-  const confirmedIds = new Set(
-    session.references.filter((reference) => reference.confirmed).map((reference) => reference.id),
-  );
-  const evaluableIds = new Set([
-    ...confirmedIds,
-    ...(context.freshReferences ?? []).map((reference) => reference.id),
-  ]);
-  const ids = intent.kind === 'evaluate' ? intent.purchaseIds : intent.kind === 'remember' ? [intent.purchaseId] : [];
-  const knownIds = intent.kind === 'evaluate' ? evaluableIds : confirmedIds;
-  if (ids.some((id) => !knownIds.has(id)) || new Set(ids).size !== ids.length) {
-    throw new IntentRouterError(
-      'unknown-reference',
-      'The intent referenced a purchase that is not confirmed in this session.',
-    );
-  }
+export class ValidatedIntentRouter implements IntentRouter {
+  readonly mode: string;
+  constructor(private readonly delegate: IntentRouter) { this.mode = delegate.mode; }
+  async route(input: RouterInput): Promise<Intent> { const result = await this.delegate.route(input); const parsed = intentSchema.safeParse(result); return parsed.success ? parsed.data : { kind: 'unsupported' }; }
 }
-
-export async function routeIntent(
-  text: string,
-  session: ConversationSession,
-  provider: IntentRouterProvider,
-  context: IntentRouterContext = {},
-): Promise<Intent> {
-  const utterance = text.trim();
-  if (utterance.length === 0) {
-    throw new IntentRouterError('invalid-input', 'An empty utterance cannot be routed.');
-  }
-
-  let raw: unknown;
-  try {
-    const routerRequest = {
-      utterance,
-      references: toRouterReferences(session, context),
-      allowedIntents: ALLOWED_INTENTS,
-      ...(context.today ? { today: context.today } : {}),
-      ...(context.timezone ? { timezone: context.timezone } : {}),
-    } satisfies Parameters<IntentRouterProvider>[0];
-    raw = await provider(routerRequest);
-  } catch (error) {
-    throw new IntentRouterError('provider-failed', 'The intent provider failed.', {
-      cause: error,
-    });
-  }
-
-  const parsed = intentSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new IntentRouterError('invalid-output', 'The intent provider returned an unsupported result.', {
-      cause: parsed.error,
-    });
-  }
-
-  const intent = parsed.data;
-  validateReferenceIds(intent, session, context);
-  return intent;
-}
+export const deterministicRouter: IntentRouter = { mode: 'deterministic-fallback', route: routeIntent };

@@ -1,17 +1,15 @@
-import type { Forecast } from './types.js';
+import { formatUSD } from './money';
+import type { Forecast } from './types';
 
-function formatCents(cents: number): string {
-  return `${cents < 0 ? '-' : ''}$${(Math.abs(cents) / 100).toFixed(2)}`;
-}
-
-export function explain(forecast: Forecast): string {
-  const lowPoint = forecast.afterPurchase.reduce((lowest, point) =>
-    point.intradayLowCents < lowest.intradayLowCents ? point : lowest,
-  );
-  const drivers = forecast.drivers
-    .filter((driver) => driver.cents < 0)
-    .map((driver) => `${driver.label} on ${driver.date}`)
-    .join(', ');
-  const reason = drivers ? ` Drivers: ${drivers}.` : '';
-  return `Projected minimum is ${formatCents(forecast.minimumCents)} on ${lowPoint.date}.${reason}`;
+export function explain(result: Forecast): string {
+  const qualifier = [
+    result.stale ? 'Using stale data.' : '',
+    !result.complete ? 'This forecast is incomplete.' : '',
+  ].filter(Boolean).join(' ');
+  const outcome = result.status === 'negative'
+    ? `Projected negative balance of ${formatUSD(result.minimumCents)} on ${result.minimumDate}.`
+    : result.status === 'below-reserve'
+      ? `Projected minimum ${formatUSD(result.minimumCents)} on ${result.minimumDate}, below your ${formatUSD(result.reserveCents)} reserve.`
+      : `Projected minimum ${formatUSD(result.minimumCents)} on ${result.minimumDate}, within your ${formatUSD(result.reserveCents)} reserve.`;
+  return [qualifier, outcome, ...result.reasons].filter(Boolean).join(' ');
 }

@@ -1,120 +1,143 @@
-import { addCalendarDays, dateInInclusiveRange } from './dates.js';
-import type {
-  CashEvent,
-  DayPoint,
-  Forecast,
-  ForecastDriver,
-  ForecastStatus,
-  Snapshot,
-} from './types.js';
+import { addDays } from './calendar';
+import { normalizeEvents, overdueUnreflectedEvents } from './events';
+import { addCents, assertSafeCents, formatUSD } from './money';
+import type { CashEvent, DayPoint, Forecast, HypotheticalPurchase, Snapshot } from './types';
+import { validateSnapshot } from './types';
 
-export type ScenarioEvent = {
-  id: string;
-  label: string;
-  date: string;
-  cents: number;
-};
+type WalkEvent = Pick<CashEvent, 'id' | 'date' | 'cents'>;
 
-export const FORECAST_HORIZON_DAYS = 14;
-
-function isIncludedCashEvent(event: CashEvent, snapshot: Snapshot, lastDate: string): boolean {
-  if (event.cancelled || event.reflectedInBalance || !dateInInclusiveRange(event.date, snapshot.today, lastDate)) {
-    return false;
+function walk(snapshot: Snapshot, events: WalkEvent[]): DayPoint[] {
+  const byDate = new Map<string, WalkEvent[]>();
+  for (const event of events) {
+    const dayEvents = byDate.get(event.date) ?? [];
+    dayEvents.push(event);
+    byDate.set(event.date, dayEvents);
   }
-  return !(event.kind === 'income' && event.confidence !== 'confirmed');
-}
 
-function cashEventToScenarioEvent(event: CashEvent): ScenarioEvent {
-  return { id: event.id, label: event.label, date: event.date, cents: event.cents };
-}
-
-function sortEvents(events: ScenarioEvent[]): ScenarioEvent[] {
-  return [...events].sort((left, right) => {
-    if (left.date !== right.date) {
-      return left.date.localeCompare(right.date);
-    }
-    const leftOutgoing = left.cents < 0 ? 0 : 1;
-    const rightOutgoing = right.cents < 0 ? 0 : 1;
-    return leftOutgoing - rightOutgoing || left.id.localeCompare(right.id);
-  });
-}
-
-function minimumCents(points: DayPoint[]): number {
-  return points.reduce(
-    (minimum, point) => Math.min(minimum, point.openingCents, point.intradayLowCents, point.closingCents),
-    Number.MAX_SAFE_INTEGER,
-  );
-}
-
-function statusFor(minimum: number, reserveCents: number): ForecastStatus {
-  if (minimum < 0) {
-    return 'negative';
-  }
-  if (minimum < reserveCents) {
-    return 'below-reserve';
-  }
-  return 'within-reserve';
-}
-
-function walk(snapshot: Snapshot, events: ScenarioEvent[]): DayPoint[] {
   const points: DayPoint[] = [];
-  const sortedEvents = sortEvents(events);
   let balance = snapshot.balanceCents;
-
-  for (let dayOffset = 0; dayOffset < FORECAST_HORIZON_DAYS; dayOffset += 1) {
-    const date = addCalendarDays(snapshot.today, dayOffset);
-    const dayEvents = sortedEvents.filter((event) => event.date === date);
+  for (let day = 0; day < 14; day += 1) {
+    const date = addDays(snapshot.today, day);
     const openingCents = balance;
-    let intradayLowCents = openingCents;
+    let lowCents = balance;
+    const dayEvents = (byDate.get(date) ?? []).sort((left, right) => (
+      Number(left.cents >= 0) - Number(right.cents >= 0)
+      || left.id.localeCompare(right.id)
+    ));
     for (const event of dayEvents) {
-      balance += event.cents;
-      intradayLowCents = Math.min(intradayLowCents, balance);
+      balance = addCents(balance, event.cents);
+      lowCents = Math.min(lowCents, balance);
     }
-    points.push({ date, openingCents, intradayLowCents, closingCents: balance });
+    points.push({ date, openingCents, lowCents, closingCents: balance });
   }
   return points;
 }
 
-export function buildForecast(
+function lowest(points: DayPoint[]): { cents: number; date: string } {
+  let result = { cents: points[0].lowCents, date: points[0].date };
+  for (const point of points.slice(1)) {
+    if (point.lowCents < result.cents) result = { cents: point.lowCents, date: point.date };
+  }
+  return result;
+}
+
+function buildReasons(
   snapshot: Snapshot,
-  purchases: readonly ScenarioEvent[],
+  events: CashEvent[],
+  overdue: CashEvent[],
+  baselineMinimumCents: number,
+  minimumCents: number,
+  minimumDate: string,
+  reserveCents: number,
+): string[] {
+  const reasons: string[] = [];
+  if (snapshot.stale) reasons.push(`Stale data: the snapshot is from ${snapshot.asOf}.`);
+  if (!snapshot.complete || overdue.length > 0) {
+    reasons.push('Incomplete forecast: one or more expected obligations may be missing or overdue.');
+  }
+  for (const event of overdue) {
+    reasons.push(`Overdue unreflected obligation "${event.label}" dated ${event.date} was excluded from the balance walk.`);
+  }
+  if (baselineMinimumCents < 0) {
+    reasons.push(`The baseline is already below zero at ${formatUSD(baselineMinimumCents)} before this purchase.`);
+  } else if (baselineMinimumCents < reserveCents) {
+    reasons.push(`The baseline is already below the ${formatUSD(reserveCents)} reserve before this purchase.`);
+  }
+  for (const event of events) {
+    if (event.cents < 0) {
+      reasons.push(`${event.label} on ${event.date} reduces the projection by ${formatUSD(-event.cents)}.`);
+    } else if (event.kind === 'income' && event.confidence === 'scheduled') {
+      reasons.push(`${event.label} on ${event.date} is included as a scheduled-income assumption.`);
+    }
+  }
+  if (minimumCents < 0) {
+    reasons.push(`Projected negative balance: ${formatUSD(minimumCents)} on ${minimumDate}.`);
+  } else if (minimumCents < reserveCents) {
+    reasons.push(`Below your reserve: the projected minimum is ${formatUSD(minimumCents)} on ${minimumDate}.`);
+  } else {
+    reasons.push(`Within your reserve: the projected minimum is ${formatUSD(minimumCents)} on ${minimumDate}.`);
+  }
+  return reasons;
+}
+
+export function forecastWithPurchases(
+  rawSnapshot: Snapshot,
+  purchases: HypotheticalPurchase[],
   reserveCents: number,
 ): Forecast {
-  if (!Number.isSafeInteger(reserveCents) || reserveCents < 0) {
-    throw new Error('Reserve must be a non-negative safe integer number of cents.');
-  }
+  const snapshot = validateSnapshot(rawSnapshot);
+  assertSafeCents(reserveCents, 'Reserve', { nonnegative: true });
 
-  const lastDate = addCalendarDays(snapshot.today, FORECAST_HORIZON_DAYS - 1);
-  const providerEvents = snapshot.events
-    .filter((event) => isIncludedCashEvent(event, snapshot, lastDate))
-    .map(cashEventToScenarioEvent);
-  const baseline = walk(snapshot, providerEvents);
-  const afterPurchase = walk(snapshot, [...providerEvents, ...purchases]);
-  const baselineMinimumCents = minimumCents(baseline);
-  const scenarioMinimumCents = minimumCents(afterPurchase);
+  const events = normalizeEvents(snapshot.events, snapshot.today);
+  const overdue = overdueUnreflectedEvents(snapshot.events, snapshot.today);
+  const baseline = walk(snapshot, events);
+  const scenarioEvents: WalkEvent[] = purchases.map(purchase => ({
+    id: `hypothetical:${purchase.id}`,
+    date: purchase.date,
+    cents: -purchase.cents,
+  }));
+  const afterPurchase = walk(snapshot, [...events, ...scenarioEvents]);
+  const baselineMinimum = lowest(baseline);
+  const minimum = lowest(afterPurchase);
+  let purchaseCents = 0;
+  for (const purchase of purchases) purchaseCents = addCents(purchaseCents, purchase.cents);
+  const allowance = addCents(baselineMinimum.cents, -reserveCents);
+  const complete = snapshot.complete && overdue.length === 0;
+  const status: Forecast['status'] = minimum.cents < 0
+    ? 'negative'
+    : minimum.cents < reserveCents ? 'below-reserve' : 'within-reserve';
 
   return {
     baseline,
     afterPurchase,
-    baselineMinimumCents,
-    minimumCents: scenarioMinimumCents,
-    safeToSpendCents: Math.max(0, baselineMinimumCents - reserveCents),
-    purchaseCents: purchases.reduce((sum, purchase) => sum + Math.abs(purchase.cents), 0),
-    status: statusFor(scenarioMinimumCents, reserveCents),
-    drivers: sortEvents([...providerEvents, ...purchases]).map<ForecastDriver>((event) => ({ ...event })),
+    minimumCents: minimum.cents,
+    minimumDate: minimum.date,
+    baselineMinimumCents: baselineMinimum.cents,
+    safeToSpendCents: Math.max(0, allowance),
+    purchaseCents,
+    reserveCents,
+    status,
+    complete,
+    stale: snapshot.stale,
+    reasons: buildReasons(
+      snapshot,
+      events,
+      overdue,
+      baselineMinimum.cents,
+      minimum.cents,
+      minimum.date,
+      reserveCents,
+    ),
   };
 }
 
-export function forecast(
-  snapshot: Snapshot,
-  purchaseCents: number,
-  reserveCents: number,
-): Forecast {
-  return buildForecast(
-    snapshot,
-    purchaseCents === 0
-      ? []
-      : [{ id: '__immediate_purchase__', label: 'Purchase', date: snapshot.today, cents: -purchaseCents }],
-    reserveCents,
-  );
+export function forecast(snapshot: Snapshot, purchaseCents: number, reserveCents: number): Forecast {
+  assertSafeCents(purchaseCents, 'Purchase', { nonnegative: true });
+  const purchases: HypotheticalPurchase[] = purchaseCents === 0 ? [] : [{
+    id: 'immediate-purchase',
+    label: 'Purchase',
+    cents: purchaseCents,
+    date: snapshot.today,
+  }];
+  return forecastWithPurchases(snapshot, purchases, reserveCents);
 }

@@ -1,0 +1,17 @@
+{
+  "imageWidth": 738,
+  "imageHeight": 1000,
+  "totalBox": {
+    "x": 238.53125,
+    "y": 384.3125,
+    "width": 157.34375,
+    "height": 45
+  },
+  "buttonBox": {
+    "x": 118,
+    "y": 453.3125,
+    "width": 230.296875,
+    "height": 56
+  },
+  "capturedAt": "2026-09-12T17:29:50.250Z"
+}
