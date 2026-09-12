@@ -144,6 +144,12 @@ function safeLabel(candidate: string | undefined, fallback: string, accountNumbe
   return candidate;
 }
 
+function safeAccountType(candidate: string | undefined): Snapshot['accountType'] {
+  return candidate === 'Checking' || candidate === 'Savings' || candidate === 'Credit Card'
+    ? candidate
+    : undefined;
+}
+
 function event(input: CashEvent): CashEvent {
   return validateCashEvent(input);
 }
@@ -194,6 +200,7 @@ export function normalizeNessieSnapshot(
   const accountNumber = input.account.account_number;
   const accountDigits = accountNumber?.replace(/\D/g, '');
   const accountNickname = safeLabel(input.account.nickname, '', accountNumber) || undefined;
+  const accountType = safeAccountType(input.account.type);
   const billEvents = input.bills.map(bill => event({
     id: `nessie:bill:${bill._id}`,
     sourceId: bill._id,
@@ -238,7 +245,7 @@ export function normalizeNessieSnapshot(
     complete: input.complete,
     stale: false,
     sources: [...new Set(input.sourceEndpoints)].sort(),
-    ...(input.account.type ? { accountType: input.account.type } : {}),
+    ...(accountType ? { accountType } : {}),
     ...(accountNickname ? { accountNickname } : {}),
     ...(accountDigits && accountDigits.length >= 4 ? { accountLast4: accountDigits.slice(-4) } : {}),
     ...(input.account.rewards !== undefined ? { rewardsPoints: input.account.rewards } : {}),

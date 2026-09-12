@@ -2,7 +2,7 @@ import { addDays } from './calendar';
 import { normalizeEvents } from './events';
 import { forecast } from './forecast';
 import { addCents, assertSafeCents, formatUSD } from './money';
-import type { CashEvent, Snapshot } from './types';
+import type { CashEvent, DataMode, Snapshot } from './types';
 import { validateSnapshot } from './types';
 
 export type UpcomingBill = {
@@ -30,7 +30,7 @@ export type FinancialInsights = {
   rewardsPoints: number | null;
   recentDepositsCents: number;
   recentWithdrawalsCents: number;
-  coverage: { complete: boolean; stale: boolean; sources: string[] };
+  coverage: { mode: DataMode; complete: boolean; stale: boolean; sources: string[] };
   highlights: string[];
   account: { type?: string; nickname?: string; last4?: string };
 };
@@ -145,6 +145,7 @@ export function buildFinancialInsights(rawSnapshot: Snapshot, reserveCents: numb
     recentDepositsCents: recent.deposits,
     recentWithdrawalsCents: recent.withdrawals,
     coverage: {
+      mode: snapshot.mode,
       complete: snapshot.complete,
       stale: snapshot.stale,
       sources: [...(snapshot.sources ?? [])].sort(),

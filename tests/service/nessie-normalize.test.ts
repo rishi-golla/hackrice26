@@ -253,6 +253,15 @@ describe('normalizeNessieSnapshot', () => {
     expect(JSON.stringify(result)).not.toContain('1234567890123456');
   });
 
+  it('omits an account type that contains the full account number', () => {
+    const result = normalizeNessieSnapshot(input({
+      account: { ...account, type: 'Checking 1234-5678-9012-3456' },
+    }), options);
+
+    expect(result.accountType).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain('1234-5678-9012-3456');
+  });
+
   it('redacts formatted account numbers and long digit sequences from labels', () => {
     const result = normalizeNessieSnapshot(input({
       bills: [{

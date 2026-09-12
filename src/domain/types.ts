@@ -26,7 +26,7 @@ export type Snapshot = {
   complete: boolean;
   stale: boolean;
   sources?: string[];
-  accountType?: string;
+  accountType?: 'Checking' | 'Savings' | 'Credit Card';
   accountNickname?: string;
   accountLast4?: string;
   rewardsPoints?: number;
@@ -63,6 +63,7 @@ export type HypotheticalPurchase = {
 };
 
 const modes: DataMode[] = ['live-sandbox', 'recorded-sandbox', 'synthetic'];
+const accountTypes: NonNullable<Snapshot['accountType']>[] = ['Checking', 'Savings', 'Credit Card'];
 const kinds: CashEvent['kind'][] = ['bill', 'income', 'transfer', 'expense'];
 const confidences: CashEvent['confidence'][] = ['scheduled', 'user-entered', 'unconfirmed'];
 
@@ -122,7 +123,9 @@ export function validateSnapshot(value: unknown): Snapshot {
     if (!Array.isArray(input.sources)) throw new Error('Snapshot.sources must be an array');
     input.sources.forEach(source => nonEmptyString(source, 'Snapshot.sources entry'));
   }
-  if (input.accountType !== undefined) nonEmptyString(input.accountType, 'Snapshot.accountType');
+  if (input.accountType !== undefined && !accountTypes.includes(input.accountType as NonNullable<Snapshot['accountType']>)) {
+    throw new Error('Snapshot.accountType is unsupported');
+  }
   if (input.accountNickname !== undefined) nonEmptyString(input.accountNickname, 'Snapshot.accountNickname');
   if (input.accountLast4 !== undefined) {
     if (typeof input.accountLast4 !== 'string' || !/^\d{4}$/.test(input.accountLast4)) {

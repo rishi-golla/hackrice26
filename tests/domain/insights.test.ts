@@ -105,6 +105,7 @@ describe('buildFinancialInsights', () => {
     expect(result.account).toEqual({ type: 'Checking', nickname: 'Daily checking', last4: '3456' });
     expect(result.rewardsPoints).toBe(17);
     expect(result.coverage).toEqual({
+      mode: 'live-sandbox',
       complete: false,
       stale: true,
       sources: ['/accounts', '/bills', '/withdrawals'],
