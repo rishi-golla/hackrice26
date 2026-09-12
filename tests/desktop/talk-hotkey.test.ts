@@ -7,21 +7,36 @@ import {
 
 function fakeAdapter(supportsKeyRelease = true) {
   let handlers: TalkHotkeyHandlers | undefined;
+  let binding: string | undefined;
   let cleaned = false;
   const adapter: TalkHotkeyAdapter = {
     supportsKeyRelease,
     canRegister: () => true,
-    register: (_binding, nextHandlers) => {
+    register: (nextBinding, nextHandlers) => {
+      binding = nextBinding;
       handlers = nextHandlers;
       return () => {
         cleaned = true;
       };
     },
   };
-  return { adapter, get handlers() { return handlers; }, get cleaned() { return cleaned; } };
+  return {
+    adapter,
+    get handlers() { return handlers; },
+    get binding() { return binding; },
+    get cleaned() { return cleaned; },
+  };
 }
 
 describe('talk hotkey lifecycle', () => {
+  it('registers Control+Space by default', () => {
+    const source = fakeAdapter();
+
+    registerTalkHotkey(() => undefined, () => undefined, source.adapter);
+
+    expect(source.binding).toBe('Control+Space');
+  });
+
   it('starts once, ignores auto-repeat, releases on key-up, and cleans up', () => {
     const source = fakeAdapter();
     const events: string[] = [];

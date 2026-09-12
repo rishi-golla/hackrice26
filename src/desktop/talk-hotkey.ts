@@ -23,7 +23,7 @@ export function registerTalkHotkey(
   adapter: TalkHotkeyAdapter,
   options: TalkHotkeyOptions = {},
 ): () => void {
-  const binding = options.binding ?? 'Control+Shift+Space';
+  const binding = options.binding ?? 'Control+Space';
   if (adapter.canRegister && !adapter.canRegister(binding)) {
     throw new Error(`Hotkey collision: ${binding}`);
   }
