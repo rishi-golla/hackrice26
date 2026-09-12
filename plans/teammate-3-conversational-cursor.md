@@ -8,7 +8,7 @@
 
 **Does not own:** raw OCR/capture, money arithmetic, Nessie translation, Persona execution, packaging or README.
 
-**Dependencies:** Part 1 exports `Snapshot`, `Forecast`, `evaluateScenario`, `explain`, and authenticated analysis. Part 2 exports fresh candidate registration/confirmation and cursor coordinates. Read companion plans `plans/2026-09-12-conversation-behavior.md` and `plans/2026-09-12-cursor-interaction-design.md`.
+**Dependencies:** Part 1 exports `Snapshot`, `Forecast`, `evaluateScenario`, `explain`, and authenticated analysis. Part 2 exports fresh candidate registration/confirmation and cursor coordinates. ElevenLabs provides both speech-to-text and text-to-speech through the server-owned speech adapter. Read companion plans `plans/2026-09-12-conversation-behavior.md` and `plans/2026-09-12-cursor-interaction-design.md`.
 
 ## Global constraints
 
@@ -38,14 +38,16 @@ Create: `src/service/conversation/{types,session,router,controller}.ts`, `src/do
 - [ ] Generate replies from `evaluateScenario`/`explain`, not model-authored amounts. Reject stale snapshots unless user explicitly chooses preview. Recheck account/mode and turn generation before publishing.
 - [ ] Test “Can I afford these?” → “What about September 20?” → “and the headphones?”; missing antecedent; evicted reference; account switch; prompt injection in OCR; cancelled turn; fake tool call. Commit `feat: ground conversational turns in validated financial tools`.
 
-## Task 3 — speech and cursor character
+## Task 3 — ElevenLabs voice-to-voice speech and cursor character
 
-- [ ] Implement `transcribe(audio,mime)` and server-owned `synthesize(replyId)` with strict size/MIME/time limits, deadlines and memory-only audio. Arbitrary renderer text cannot become financial speech.
-- [ ] Verify provider APIs and credentials at execution time. On denial/failure leave typed bubble available and expose a recoverable state.
+- [ ] Implement the voice-to-voice path: hold-to-talk records user audio, ElevenLabs Scribe v2 transcribes it after release, the validated conversation controller produces a grounded reply, and ElevenLabs text-to-speech speaks that reply. Use batch transcription first; realtime transcription is a later optimization, not a core acceptance requirement.
+- [ ] Implement `transcribe(audio,mime)` with `POST /v1/speech-to-text` and `model_id:'scribe_v2'`, and server-owned `synthesize(replyId)` with `POST /v1/text-to-speech/:voice_id`. Keep the API key, voice ID, model IDs and output format in server-side configuration; never expose them to the renderer.
+- [ ] Enforce strict audio size/MIME/time limits, request deadlines, cancellation and memory-only audio/transcripts. Request provider zero-retention mode when the configured ElevenLabs account supports it; otherwise discard local data and document provider retention limits. Arbitrary renderer text cannot become financial speech: synthesis resolves only a session-owned generated `replyId`.
+- [ ] Verify ElevenLabs API access and credentials at execution time. On denial, quota/rate-limit failure, timeout, malformed response or unavailable provider, stop the voice turn, leave the typed bubble available and expose a recoverable state.
 - [ ] Implement a narrowly scoped native adapter for configurable Control+Shift+Space press/release, with collision checks, no auto-repeat duplication and cleanup on quit. If a target cannot deliver release, label toggle-to-talk explicitly.
 - [ ] Render cursor states `idle`, `listening`, `thinking`, `speaking`, `clarifying`, `error`; halo tracks pointer, bubble anchors at response point, graph opens only for analysis, reduced motion is respected.
 - [ ] Escape cancels mic/audio/turn; a new activation barges in and invalidates old results. Bubble dismisses 8 seconds after playback unless pinned/hovered/focused; clarifications remain until answered.
-- [ ] Test normal pointer actions under passive overlays, bottom-right/top-left clamping, native key release in another app, mic denial, timeout, barge-in, stale async result, mute, reduced motion and bubble pinning. Commit `feat: make the cursor a grounded conversational companion`.
+- [ ] Test the ElevenLabs adapter with mocked transcription and synthesis responses, invalid MIME/size/duration, authentication and rate-limit errors, timeouts, cancellation, stale generations, mute, provider denial and typed fallback. Test normal pointer actions under passive overlays, bottom-right/top-left clamping, native key release in another app, barge-in, reduced motion and bubble pinning. Commit `feat: make the cursor a grounded conversational companion`.
 
 ## Handoff checklist
 
