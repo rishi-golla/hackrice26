@@ -426,3 +426,71 @@ form { display: flex; flex-direction: column; gap: 8px; }
   30% { opacity: 1; transform: translateY(-3px); }
 }
 
+/* ── Comparison Panel ──────────────────────────────────────────────────────── */
+.comparison-panel {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #0f1a2e;
+  border: 1px solid #1e3a5f;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.comparison-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.comparison-title { font-size: 12px; font-weight: 600; color: #93c5fd; }
+.comparison-dismiss { background: transparent; border: 0; color: #4b5563; font-size: 16px; padding: 0 4px; }
+
+.comparison-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.comparison-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: #0d1829;
+  border: 1px solid #1e3a5f;
+}
+.comparison-item-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.comparison-item-title { font-size: 11px; color: #d1d5db; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.comparison-item-source { font-size: 10px; color: #4b6a94; }
+.comparison-item-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.comparison-item-price { font-size: 13px; color: #60a5fa; font-weight: 700; }
+.comparison-go-btn {
+  padding: 3px 8px; font-size: 10px; font-weight: 600;
+  background: #1d4ed8; border-color: #3b82f6; border-radius: 6px; color: #fff;
+}
+.comparison-go-btn:hover { background: #2563eb; }
+
+.comparison-links { display: flex; flex-direction: column; gap: 8px; }
+.comparison-links-label { margin: 0; font-size: 11px; color: #6b7280; }
+.comparison-links-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.comparison-link-btn {
+  padding: 4px 9px; font-size: 10px; background: #1e293b; border-color: #334155;
+  border-radius: 7px; color: #93c5fd; text-transform: capitalize;
+}
+.comparison-link-btn:hover { background: #263347; }
+
+/* ── Navigation Status ─────────────────────────────────────────────────────── */
+.nav-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border-radius: 9px;
+  background: #0d1a0f;
+  border: 1px solid #1d4020;
+  font-size: 11px;
+}
+.nav-status-icon { font-size: 14px; flex-shrink: 0; }
+.nav-status-text { flex: 1; color: #9be4af; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-status-again {
+  padding: 2px 7px; font-size: 10px; background: #1a3326; border-color: #2d6a35;
+  border-radius: 6px; color: #9be4af; flex-shrink: 0;
+}
+.nav-status-dismiss { background: transparent; border: 0; color: #4b5563; font-size: 14px; padding: 0 3px; flex-shrink: 0; }
+

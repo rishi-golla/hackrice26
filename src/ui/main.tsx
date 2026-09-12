@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import type { Answer, CandidateView, CursorState, FinancialInsightsView, PublicConfig } from '../shared/contracts';
 import { VoiceControl } from './VoiceControl';
 import { ForecastChart } from './ForecastChart';
-import { createBrowserVoiceRuntime, ConvAIVoiceController, VoiceTurnController } from './voice';
+import { createBrowserVoiceRuntime, ConvAIVoiceController, VoiceTurnController, type ComparisonResult } from './voice';
 import './styles.css';
 
 const money = (cents: number) => `${cents < 0 ? '-' : ''}$${(Math.abs(cents) / 100).toFixed(2)}`;
@@ -205,6 +205,51 @@ function ProofPanel({ insights, accountEmail }: { insights: FinancialInsightsVie
   );
 }
 
+// ── Comparison Panel ─────────────────────────────────────────────────────────
+function ComparisonPanel({ comparison, onNavigate, onDismiss }: {
+  comparison: ComparisonResult;
+  onNavigate: (url: string) => void;
+  onDismiss: () => void;
+}) {
+  const hasResults = comparison.results.length > 0;
+  return (
+    <section className="comparison-panel">
+      <div className="comparison-header">
+        <span className="comparison-title">🔍 Price comparison{comparison.query ? ` · ${comparison.query}` : ''}</span>
+        <button className="comparison-dismiss" onClick={onDismiss}>×</button>
+      </div>
+
+      {hasResults ? (
+        <ul className="comparison-list">
+          {comparison.results.map((r, i) => (
+            <li key={i} className="comparison-item">
+              <div className="comparison-item-info">
+                <span className="comparison-item-title">{r.title}</span>
+                <span className="comparison-item-source">{r.source}{r.rating ? ` · ★ ${r.rating}` : ''}</span>
+              </div>
+              <div className="comparison-item-right">
+                <strong className="comparison-item-price">{r.price}</strong>
+                <button className="comparison-go-btn" onClick={() => onNavigate(r.url)}>Go →</button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="comparison-links">
+          <p className="comparison-links-label">Search directly:</p>
+          <div className="comparison-links-row">
+            {Object.entries(comparison.searchUrls).slice(0, 4).map(([key, url]) => (
+              <button key={key} className="comparison-link-btn" onClick={() => onNavigate(url)}>
+                {key.replace(/_/g, ' ')}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ── Forecast section ──────────────────────────────────────────────────────────
 function Forecast({ answer }: { answer: Answer }) {
   const forecast = answer.forecast!;
@@ -239,6 +284,8 @@ function App() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
+  const [comparison, setComparison] = useState<ComparisonResult | null>(null);
+  const [lastNavigatedUrl, setLastNavigatedUrl] = useState<{ url: string; reason: string } | null>(null);
 
   const candidateRef = useRef<CandidateView | undefined>(undefined);
   const configRef = useRef<PublicConfig | undefined>(undefined);
@@ -266,7 +313,13 @@ function App() {
           window.flicky,
           next.accountId,
           10_000,
-          { onState: setState, onError: setError, onInsights: setConvaiInsights },
+          {
+            onState: setState,
+            onError: setError,
+            onInsights: setConvaiInsights,
+            onComparison: result => setComparison(result),
+            onNavigation: (url, reason) => setLastNavigatedUrl({ url, reason }),
+          },
         );
         convaiRef.current = ctrl;
         await ctrl.start(buildConvaiContext());
@@ -415,6 +468,27 @@ function App() {
       {/* Financial proof panel */}
       {insights && !showLogin && (
         <ProofPanel insights={insights} accountEmail={loggedIn ? accountEmail : null} />
+      )}
+
+      {/* Comparison results from agent search */}
+      {comparison && !showLogin && (
+        <ComparisonPanel
+          comparison={comparison}
+          onNavigate={url => void window.flicky.openUrl(url)}
+          onDismiss={() => setComparison(null)}
+        />
+      )}
+
+      {/* Navigation status */}
+      {lastNavigatedUrl && !showLogin && (
+        <div className="nav-status">
+          <span className="nav-status-icon">🌐</span>
+          <span className="nav-status-text">Opened: {lastNavigatedUrl.reason}</span>
+          <button className="nav-status-again" onClick={() => void window.flicky.openUrl(lastNavigatedUrl.url)}>
+            Reopen
+          </button>
+          <button className="nav-status-dismiss" onClick={() => setLastNavigatedUrl(null)}>×</button>
+        </div>
       )}
 
       {/* ConvAI prompt when idle and logged in */}

@@ -36,6 +36,7 @@ async function main() {
     : createDeterministicFormatter();
   const convaiAgentId = process.env.ELEVENLABS_AGENT_ID?.trim() || undefined;
   const convaiApiKey = convaiAgentId ? process.env.ELEVENLABS_API_KEY?.trim() : undefined;
+  const serperApiKey = process.env.SERPER_API_KEY?.trim() || undefined;
   const server = buildServer({
     sessionToken: process.env.FLICKY_SESSION_TOKEN ?? '',
     accountIds,
@@ -48,6 +49,7 @@ async function main() {
     synthesize: speech.synthesize,
     convaiAgentId,
     convaiApiKey,
+    serperApiKey,
   });
   const address = await server.listen({ host: '127.0.0.1', port: 0 });
   process.stdout.write(JSON.stringify({

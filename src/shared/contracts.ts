@@ -52,6 +52,13 @@ export type DesktopEvent =
   | { type: 'voice-toggle' }
   | { type: 'cancel' };
 
+export type ProductSearchResult = {
+  results: Array<{ title: string; price: string; url: string; source: string; rating?: number }>;
+  searchUrls: Record<string, string>;
+  query?: string;
+  note?: string;
+};
+
 /** Context about what the user is currently viewing in their browser / on screen. */
 export interface BrowserContext {
   browserUrl?: string;
@@ -89,6 +96,8 @@ export interface FlickyBridge {
   getConvaiToken(context: BrowserContext): Promise<string>;
   openScreenPermissions(): Promise<void>;
   getScreenText(): Promise<string>;
+  openUrl(url: string): Promise<void>;
+  searchProducts(q: string): Promise<ProductSearchResult>;
   /**
    * Execute a registered financial tool (read-only) on behalf of the ConvAI agent.
    * Authenticated via the active session; account-scoped per policy.

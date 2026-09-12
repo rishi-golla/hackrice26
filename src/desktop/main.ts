@@ -91,8 +91,12 @@ async function capture() {
     const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: {
       width: Math.round(display.size.width * display.scaleFactor), height: Math.round(display.size.height * display.scaleFactor),
     }, fetchWindowIcons: false });
-    const source = sources.find(item => item.display_id === String(display.id));
-    if (!source || source.thumbnail.isEmpty()) throw new Error('No screen image. Check screen permission or enter an amount.');
+    // display_id from desktopCapturer may not exactly match display.id on all macOS versions —
+    // fall back to the first source (primary screen) if no direct match found.
+    const source = sources.find(item => item.display_id === String(display.id))
+      ?? sources.find(item => item.display_id !== '')
+      ?? sources[0];
+    if (!source || source.thumbnail.isEmpty()) throw new Error('No screen image. Grant Screen Recording permission in System Settings → Privacy & Security, then restart.');
     const size = source.thumbnail.getSize();
     const frame: Frame = { id: randomUUID(), capturedAt: Date.now(), displayId: String(display.id), bounds: display.bounds,
       workArea: display.workArea, imageWidth: size.width, imageHeight: size.height, png: source.thumbnail.toPNG() };
@@ -217,6 +221,26 @@ function registerIPC() {
     void shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
   });
   handle('getScreenText', z.undefined(), () => lastScreenText);
+  handle('openUrl', z.string().url().max(2000), url => shell.openExternal(url));
+  handle('searchProducts', z.object({ q: z.string().min(1).max(300) }).strict(), async value => {
+    try {
+      return await request<unknown>(`/search?q=${encodeURIComponent(value.q)}`);
+    } catch {
+      // If search endpoint unavailable, return smart search URLs so agent can navigate
+      const q = encodeURIComponent(value.q);
+      return {
+        results: [],
+        searchUrls: {
+          google_shopping: `https://www.google.com/search?q=${q}&tbm=shop`,
+          amazon: `https://www.amazon.com/s?k=${q}`,
+          ebay: `https://www.ebay.com/sch/i.html?_nkw=${q}`,
+          ebay_used: `https://www.ebay.com/sch/i.html?_nkw=${q}&LH_Used=1&LH_ItemCondition=3000`,
+          facebook_marketplace: `https://www.facebook.com/marketplace/search/?query=${q}`,
+        },
+        note: 'Search service unavailable. Use searchUrls to navigate the user to comparison pages.',
+      };
+    }
+  });
   handle('executeTool',
     z.object({ name: z.string().min(1).max(120), input: z.record(z.unknown()) }).strict(),
     value => request('/tool', { name: value.name, input: value.input }),
@@ -245,7 +269,10 @@ app.whenReady().then(async () => {
   card.webContents.session.setPermissionCheckHandler((contents, permission) => contents === card.webContents && permission === 'media' && config.microphoneConsent);
   await Promise.all([card.loadFile(path.join(__dirname, 'renderer/index.html')), passive.loadFile(path.join(__dirname, 'renderer/index.html'), { query: { surface: 'passive' } })]);
   // Auto-enable screen reading — always on so ConvAI always has context
-  monitor.setEnabled(config.permission !== 'denied');
+  const screenGranted = config.permission !== 'denied';
+  monitor.setEnabled(screenGranted);
+  // Proactively populate lastScreenText once windows are settled
+  if (screenGranted) setTimeout(() => void capture(), 3000);
   const icon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVQ4T2NkYPj/n4ECwESJ5lEDRg0YDAwAQCIf8WOSXPoAAAAASUVORK5CYII=');
   tray = new Tray(icon); tray.setToolTip('Flicky — talk to your cursor');
   tray.setContextMenu(Menu.buildFromTemplate([{ label: 'Talk to Flicky / settings', click: () => showCard(true) }, { label: 'Quit Flicky', click: () => app.quit() }]));

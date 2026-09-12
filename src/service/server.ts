@@ -34,6 +34,8 @@ export interface ServiceDependencies {
   convaiAgentId?: string;
   /** ElevenLabs API key forwarded from environment — never sent to renderer. */
   convaiApiKey?: string;
+  /** Serper.dev API key for web search / product comparison. */
+  serperApiKey?: string;
 }
 const cents = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const identifier = z.string().min(1).max(120);
@@ -190,6 +192,43 @@ export function buildServer(config: ServerConfig, provider: SnapshotProvider, de
     const audio = Buffer.from(body.audio, 'base64');
     if (!audio.length || audio.length > 10 * 1024 * 1024) throw new TypeError('Invalid audio size');
     return { text: await deps.transcribe(audio, body.mime, body.durationMs) };
+  });
+  // Product comparison search — uses Serper.dev if key is set, else returns search URLs
+  server.get('/search', async (request, reply) => {
+    const query = z.object({ q: z.string().min(1).max(300) }).parse(request.query);
+    const q = query.q;
+    const buildUrls = (query: string) => ({
+      google_shopping: `https://www.google.com/search?q=${encodeURIComponent(query)}&tbm=shop`,
+      amazon: `https://www.amazon.com/s?k=${encodeURIComponent(query)}`,
+      ebay: `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}`,
+      ebay_used: `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}&LH_Used=1&LH_ItemCondition=3000`,
+      facebook_marketplace: `https://www.facebook.com/marketplace/search/?query=${encodeURIComponent(query)}`,
+    });
+    if (!deps.serperApiKey) {
+      return { results: [], searchUrls: buildUrls(q), note: 'Add SERPER_API_KEY to .env for live price results.' };
+    }
+    try {
+      const res = await fetch('https://google.serper.dev/shopping', {
+        method: 'POST',
+        headers: { 'X-API-KEY': deps.serperApiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ q, num: 10, gl: 'us' }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) return { results: [], searchUrls: buildUrls(q) };
+      const data = await res.json() as { shopping?: Array<{ title: string; link: string; price?: string; source?: string; imageUrl?: string; rating?: number }> };
+      const results = (data.shopping ?? []).slice(0, 8).map(item => ({
+        title: item.title,
+        price: item.price ?? 'Price unavailable',
+        url: item.link,
+        source: item.source ?? 'Unknown',
+        rating: item.rating,
+      }));
+      // Also check eBay used market for deals
+      const usedUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}&LH_Used=1&LH_ItemCondition=3000&_sop=15`;
+      return { results, searchUrls: { ...buildUrls(q), ebay_used_sorted: usedUrl }, query: q };
+    } catch {
+      return { results: [], searchUrls: buildUrls(q) };
+    }
   });
   server.post('/speak', async (request, reply) => {
     const body = z.object({ sessionId: identifier, replyId: identifier }).strict().parse(request.body);

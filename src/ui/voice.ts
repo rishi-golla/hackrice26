@@ -230,13 +230,21 @@ export function createBrowserVoiceRuntime(): VoiceRuntime {
 
 // ── ElevenLabs Conversational AI Controller ───────────────────────────────────
 
-type ConvAIBridge = Pick<FlickyBridge, 'getConvaiToken' | 'executeTool' | 'state' | 'cancel'>;
+type ConvAIBridge = Pick<FlickyBridge, 'getConvaiToken' | 'executeTool' | 'state' | 'cancel' | 'openUrl' | 'searchProducts' | 'getScreenText'>;
+
+export type ComparisonResult = {
+  results: Array<{ title: string; price: string; url: string; source: string; rating?: number }>;
+  searchUrls: Record<string, string>;
+  query?: string;
+};
 
 export type ConvAICallbacks = {
   onState?: (state: CursorState) => void;
   onError?: (message: string) => void;
   onInsights?: (insights: FinancialInsightsView) => void;
   onTranscript?: (speaker: 'user' | 'agent', text: string) => void;
+  onComparison?: (result: ComparisonResult) => void;
+  onNavigation?: (url: string, reason: string) => void;
 };
 
 /**
@@ -311,6 +319,39 @@ export class ConvAIVoiceController {
             return JSON.stringify(result);
           } catch (error) {
             return JSON.stringify({ error: error instanceof Error ? error.message : 'Forecast failed' });
+          }
+        },
+
+        search_products: async (params) => {
+          try {
+            const query = typeof params.query === 'string' ? params.query : String(params.query ?? '');
+            const result = await this.bridge.searchProducts(query);
+            this.callbacks.onComparison?.(result);
+            return JSON.stringify(result);
+          } catch (error) {
+            return JSON.stringify({ error: error instanceof Error ? error.message : 'Search failed' });
+          }
+        },
+
+        navigate_browser: async (params) => {
+          try {
+            const url = typeof params.url === 'string' ? params.url : '';
+            const reason = typeof params.reason === 'string' ? params.reason : 'Navigating to better deal';
+            if (!url.startsWith('https://')) return JSON.stringify({ error: 'URL must start with https://' });
+            await this.bridge.openUrl(url);
+            this.callbacks.onNavigation?.(url, reason);
+            return JSON.stringify({ success: true, url, message: 'Opened in your browser' });
+          } catch (error) {
+            return JSON.stringify({ error: error instanceof Error ? error.message : 'Navigation failed' });
+          }
+        },
+
+        get_screen_context: async () => {
+          try {
+            const text = await this.bridge.getScreenText();
+            return JSON.stringify({ screenText: text || 'No screen text available', captured: !!text });
+          } catch (error) {
+            return JSON.stringify({ error: error instanceof Error ? error.message : 'Screen capture failed' });
           }
         },
       };

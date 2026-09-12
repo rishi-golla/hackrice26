@@ -19,6 +19,8 @@ const bridge: FlickyBridge = {
   executeTool: (name, input) => invoke('executeTool', { name, input }),
   openScreenPermissions: () => invoke('openScreenPermissions'),
   getScreenText: () => invoke('getScreenText'),
+  openUrl: url => invoke('openUrl', url),
+  searchProducts: q => invoke('searchProducts', { q }),
   onEvent: listener => {
     const handler = (_: unknown, value: Parameters<typeof listener>[0]) => listener(value);
     ipcRenderer.on('flicky:event', handler);
