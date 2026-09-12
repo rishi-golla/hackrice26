@@ -23,10 +23,18 @@ function pathsFor(options: Paths): { langPath: string; workerPath?: string; core
 }
 
 async function createRuntimeWorker(config: TesseractWorkerConfig): Promise<TesseractWorker> {
+  // tesseract.js merges options as {...defaultOptions, ..._options}. Its own
+  // defaultOptions.workerPath/corePath point at the correct bundled files;
+  // including workerPath/corePath keys here even as `undefined` would
+  // overwrite those working defaults (an explicit `undefined` value still
+  // wins the spread) and crash `new Worker(undefined)`. Only pass them when
+  // a caller actually supplied a real override.
+  const overrides: { workerPath?: string; corePath?: string } = {};
+  if (config.workerPath) overrides.workerPath = config.workerPath;
+  if (config.corePath) overrides.corePath = config.corePath;
   const worker = await createWorker('eng', 1, {
     langPath: config.langPath,
-    workerPath: config.workerPath,
-    corePath: config.corePath,
+    ...overrides,
     logger: () => {},
   });
   return worker as unknown as TesseractWorker;

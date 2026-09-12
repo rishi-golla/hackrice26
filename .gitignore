@@ -10,3 +10,4 @@ test-results/
 macos/clicky-worker/.dev.vars
 **/xcuserdata/
 .hover-latency-bench-*
+eng.traineddata

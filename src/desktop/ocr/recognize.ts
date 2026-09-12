@@ -30,7 +30,14 @@ export type TesseractRecognitionResult = {
 };
 
 export type TesseractWorker = {
-  recognize(image: Uint8Array): Promise<TesseractRecognitionResult>;
+  /**
+   * The third (output-configuration) argument matters: tesseract.js only
+   * populates `data.blocks` (and therefore word-level boxes) when called as
+   * `recognize(image, {}, { blocks: true })`. Without it `data.blocks` is
+   * `null` and `data.words` doesn't exist in tesseract.js@^6, so mapWords()
+   * below would always throw 'invalid-result' on a real worker.
+   */
+  recognize(image: Uint8Array, params?: Record<string, unknown>, opts?: { blocks?: boolean }): Promise<TesseractRecognitionResult>;
   terminate(): Promise<void> | void;
   /** Present in older Tesseract.js versions; newer versions do this in createWorker. */
   loadLanguage?(language: 'eng'): Promise<void> | void;
@@ -186,7 +193,7 @@ export class PersistentOcrRecognizer {
       }
 
       const result = await timeout(
-        workerState.worker.recognize(frame.png),
+        workerState.worker.recognize(frame.png, {}, { blocks: true }),
         this.options.timeoutMs ?? 5_000,
         () => {
           // A timed-out worker may still resolve later. Terminate it and clear
@@ -256,9 +263,14 @@ export function createTesseractRecognizer(
   return new PersistentOcrRecognizer({
     assets,
     createWorker: async (config) => {
+      // See the matching comment in src/desktop/recognize.ts: only pass
+      // corePath/workerPath when actually set, or an explicit `undefined`
+      // overwrites tesseract.js's own working defaults via object-spread.
+      const overrides: { corePath?: string; workerPath?: string } = {};
+      if (config.corePath) overrides.corePath = config.corePath;
+      if (config.workerPath) overrides.workerPath = config.workerPath;
       const worker = await tesseract.createWorker('eng', undefined, {
-        corePath: config.corePath,
-        workerPath: config.workerPath,
+        ...overrides,
         langPath: config.langPath,
       });
 
