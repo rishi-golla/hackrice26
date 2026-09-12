@@ -1,5 +1,5 @@
 //
-//  BuddyTranscriptionProvider.swift
+//  CappyTranscriptionProvider.swift
 //  leanring-buddy
 //
 //  Shared protocol surface for voice transcription backends.
@@ -8,14 +8,14 @@
 import AVFoundation
 import Foundation
 
-protocol BuddyStreamingTranscriptionSession: AnyObject {
+protocol CappyStreamingTranscriptionSession: AnyObject {
     var finalTranscriptFallbackDelaySeconds: TimeInterval { get }
     func appendAudioBuffer(_ audioBuffer: AVAudioPCMBuffer)
     func requestFinalTranscript()
     func cancel()
 }
 
-protocol BuddyTranscriptionProvider {
+protocol CappyTranscriptionProvider {
     var displayName: String { get }
     var requiresSpeechRecognitionPermission: Bool { get }
     var isConfigured: Bool { get }
@@ -26,23 +26,23 @@ protocol BuddyTranscriptionProvider {
         onTranscriptUpdate: @escaping (String) -> Void,
         onFinalTranscriptReady: @escaping (String) -> Void,
         onError: @escaping (Error) -> Void
-    ) async throws -> any BuddyStreamingTranscriptionSession
+    ) async throws -> any CappyStreamingTranscriptionSession
 }
 
-enum BuddyTranscriptionProviderFactory {
+enum CappyTranscriptionProviderFactory {
     private enum PreferredProvider: String {
         case assemblyAI = "assemblyai"
         case openAI = "openai"
         case appleSpeech = "apple"
     }
 
-    static func makeDefaultProvider() -> any BuddyTranscriptionProvider {
+    static func makeDefaultProvider() -> any CappyTranscriptionProvider {
         let provider = resolveProvider()
         print("🎙️ Transcription: using \(provider.displayName)")
         return provider
     }
 
-    private static func resolveProvider() -> any BuddyTranscriptionProvider {
+    private static func resolveProvider() -> any CappyTranscriptionProvider {
         let preferredProviderRawValue = AppBundleConfiguration
             .stringValue(forKey: "VoiceTranscriptionProvider")?
             .lowercased()

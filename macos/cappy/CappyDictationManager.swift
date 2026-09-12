@@ -1,5 +1,5 @@
 //
-//  BuddyDictationManager.swift
+//  CappyDictationManager.swift
 //  leanring-buddy
 //
 //  Shared push-to-talk dictation manager for the help chat and brainstorm buddy.
@@ -13,7 +13,7 @@ import Combine
 import Foundation
 import Speech
 
-enum BuddyPushToTalkShortcut {
+enum CappyPushToTalkShortcut {
     enum ShortcutOption {
         case shiftFunction
         case controlOption
@@ -199,23 +199,23 @@ enum BuddyPushToTalkShortcut {
     }
 }
 
-enum BuddyDictationPermissionProblem {
+enum CappyDictationPermissionProblem {
     case microphoneAccessDenied
     case speechRecognitionDenied
 }
 
-private enum BuddyDictationStartSource {
+private enum CappyDictationStartSource {
     case microphoneButton
     case keyboardShortcut
 }
 
-private struct BuddyDictationDraftCallbacks {
+private struct CappyDictationDraftCallbacks {
     let updateDraftText: (String) -> Void
     let submitDraftText: (String) -> Void
 }
 
 @MainActor
-final class BuddyDictationManager: NSObject, ObservableObject {
+final class CappyDictationManager: NSObject, ObservableObject {
     private static let defaultFinalTranscriptFallbackDelaySeconds: TimeInterval = 2.4
     private static let recordedAudioPowerHistoryLength = 44
     private static let recordedAudioPowerHistoryBaselineLevel: CGFloat = 0.02
@@ -228,13 +228,13 @@ final class BuddyDictationManager: NSObject, ObservableObject {
     @Published private(set) var isPreparingToRecord = false
     @Published private(set) var currentAudioPowerLevel: CGFloat = 0
     @Published private(set) var recordedAudioPowerHistory = Array(
-        repeating: BuddyDictationManager.recordedAudioPowerHistoryBaselineLevel,
-        count: BuddyDictationManager.recordedAudioPowerHistoryLength
+        repeating: CappyDictationManager.recordedAudioPowerHistoryBaselineLevel,
+        count: CappyDictationManager.recordedAudioPowerHistoryLength
     )
     @Published private(set) var microphoneButtonRecordingStartedAt: Date?
     @Published private(set) var transcriptionProviderDisplayName = ""
     @Published var lastErrorMessage: String?
-    @Published private(set) var currentPermissionProblem: BuddyDictationPermissionProblem?
+    @Published private(set) var currentPermissionProblem: CappyDictationPermissionProblem?
 
     var isDictationInProgress: Bool {
         isPreparingToRecord || isRecordingFromMicrophoneButton || isRecordingFromKeyboardShortcut || isFinalizingTranscript
@@ -262,11 +262,11 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         return AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined
     }
 
-    private let transcriptionProvider: any BuddyTranscriptionProvider
+    private let transcriptionProvider: any CappyTranscriptionProvider
     private let audioEngine = AVAudioEngine()
-    private var activeTranscriptionSession: (any BuddyStreamingTranscriptionSession)?
-    private var activeStartSource: BuddyDictationStartSource?
-    private var draftCallbacks: BuddyDictationDraftCallbacks?
+    private var activeTranscriptionSession: (any CappyStreamingTranscriptionSession)?
+    private var activeStartSource: CappyDictationStartSource?
+    private var draftCallbacks: CappyDictationDraftCallbacks?
     private var draftTextBeforeCurrentDictation = ""
     private var latestRecognizedText = ""
     private var shouldAutomaticallySubmitFinalDraft = false
@@ -281,7 +281,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
     private var lastPermissionRequestCompletedAt: Date?
 
     override init() {
-        let transcriptionProvider = BuddyTranscriptionProviderFactory.makeDefaultProvider()
+        let transcriptionProvider = CappyTranscriptionProviderFactory.makeDefaultProvider()
         self.transcriptionProvider = transcriptionProvider
         self.transcriptionProviderDisplayName = transcriptionProvider.displayName
         super.init()
@@ -375,7 +375,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
     }
 
     private func startPushToTalk(
-        startSource: BuddyDictationStartSource,
+        startSource: CappyDictationStartSource,
         currentDraftText: String,
         updateDraftText: @escaping (String) -> Void,
         submitDraftText: @escaping (String) -> Void,
@@ -383,10 +383,10 @@ final class BuddyDictationManager: NSObject, ObservableObject {
     ) async {
         guard !isDictationInProgress else { return }
 
-        print("🎙️ BuddyDictationManager: start requested (\(startSource))")
+        print("🎙️ CappyDictationManager: start requested (\(startSource))")
 
         if needsInitialPermissionPrompt {
-            print("🎙️ BuddyDictationManager: requesting initial permissions")
+            print("🎙️ CappyDictationManager: requesting initial permissions")
             NSApplication.shared.activate(ignoringOtherApps: true)
 
             do {
@@ -405,24 +405,24 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         isPreparingToRecord = true
 
         guard await requestMicrophoneAndSpeechPermissionsWithoutDuplicatePrompts() else {
-            print("🎙️ BuddyDictationManager: permissions missing or denied")
+            print("🎙️ CappyDictationManager: permissions missing or denied")
             isPreparingToRecord = false
             return
         }
         guard !Task.isCancelled else {
-            print("🎙️ BuddyDictationManager: start cancelled (shortcut released during permission check)")
+            print("🎙️ CappyDictationManager: start cancelled (shortcut released during permission check)")
             isPreparingToRecord = false
             return
         }
         guard pendingStartRequestIdentifier == startRequestIdentifier else {
-            print("🎙️ BuddyDictationManager: start request superseded")
+            print("🎙️ CappyDictationManager: start request superseded")
             isPreparingToRecord = false
             return
         }
 
         draftTextBeforeCurrentDictation = currentDraftText
         latestRecognizedText = ""
-        draftCallbacks = BuddyDictationDraftCallbacks(
+        draftCallbacks = CappyDictationDraftCallbacks(
             updateDraftText: updateDraftText,
             submitDraftText: submitDraftText
         )
@@ -442,7 +442,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         lastRecordedAudioPowerSampleDate = .distantPast
 
         guard !Task.isCancelled else {
-            print("🎙️ BuddyDictationManager: start cancelled (shortcut released before recording began)")
+            print("🎙️ CappyDictationManager: start cancelled (shortcut released before recording began)")
             resetSessionState()
             return
         }
@@ -450,7 +450,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         do {
             try await startRecognitionSession()
             guard !Task.isCancelled else {
-                print("🎙️ BuddyDictationManager: start cancelled (shortcut released during session start)")
+                print("🎙️ CappyDictationManager: start cancelled (shortcut released during session start)")
                 audioEngine.stop()
                 audioEngine.inputNode.removeTap(onBus: 0)
                 activeTranscriptionSession?.cancel()
@@ -461,19 +461,19 @@ final class BuddyDictationManager: NSObject, ObservableObject {
                 microphoneButtonRecordingStartedAt = Date()
             }
             isPreparingToRecord = false
-            print("🎙️ BuddyDictationManager: recognition session started")
+            print("🎙️ CappyDictationManager: recognition session started")
         } catch {
             isPreparingToRecord = false
             lastErrorMessage = userFacingErrorMessage(
                 from: error,
                 fallback: "couldn't start voice input. try again."
             )
-            print("❌ BuddyDictationManager: failed to start recognition session (\(transcriptionProvider.displayName)): \(error)")
+            print("❌ CappyDictationManager: failed to start recognition session (\(transcriptionProvider.displayName)): \(error)")
             resetSessionState()
         }
     }
 
-    private func stopPushToTalk(expectedStartSource: BuddyDictationStartSource) {
+    private func stopPushToTalk(expectedStartSource: CappyDictationStartSource) {
         pendingStartRequestIdentifier = UUID()
 
         guard activeStartSource == expectedStartSource else {
@@ -482,7 +482,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         }
         guard !isFinalizingTranscript else { return }
 
-        print("🎙️ BuddyDictationManager: stop requested (\(expectedStartSource))")
+        print("🎙️ CappyDictationManager: stop requested (\(expectedStartSource))")
 
         isRecordingFromMicrophoneButton = false
         isRecordingFromKeyboardShortcut = false
@@ -515,7 +515,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         activeTranscriptionSession?.cancel()
         activeTranscriptionSession = nil
 
-        print("🎙️ BuddyDictationManager: opening transcription provider \(transcriptionProvider.displayName)")
+        print("🎙️ CappyDictationManager: opening transcription provider \(transcriptionProvider.displayName)")
 
         let activeTranscriptionSession = try await transcriptionProvider.startStreamingSession(
             keyterms: buildTranscriptionKeyterms(),
@@ -544,7 +544,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         )
 
         self.activeTranscriptionSession = activeTranscriptionSession
-        print("🎙️ BuddyDictationManager: provider ready, starting audio engine")
+        print("🎙️ CappyDictationManager: provider ready, starting audio engine")
 
         let inputNode = audioEngine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
@@ -569,7 +569,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
                 shouldSubmitFinalDraft: shouldAutomaticallySubmitFinalDraft
             )
         } else {
-            print("❌ Buddy dictation error (\(transcriptionProvider.displayName)): \(error)")
+            print("❌ Cappy dictation error (\(transcriptionProvider.displayName)): \(error)")
             lastErrorMessage = userFacingErrorMessage(
                 from: error,
                 fallback: "couldn't transcribe that. try again."
@@ -650,19 +650,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
     }
 
     private func buildTranscriptionKeyterms() -> [String] {
-        let baseKeyterms = [
-            "makesomething",
-            "Learning Buddy",
-            "Codex",
-            "Claude",
-            "Anthropic",
-            "OpenAI",
-            "SwiftUI",
-            "Xcode",
-            "Vercel",
-            "Next.js",
-            "localhost"
-        ]
+        let baseKeyterms = ["Cappy", "cash flow", "forecast", "purchase", "balance", "reserve"]
 
         let combinedKeyterms = baseKeyterms + contextualKeyterms
         var uniqueNormalizedKeyterms = Set<String>()
