@@ -6,12 +6,16 @@ export interface Rect {
 }
 
 export interface Frame {
+  /** Capture metadata is optional for coordinate-only callers. */
+  id?: string;
+  capturedAt?: number;
   displayId: string;
   bounds: Rect;
   workArea: Rect;
   imageWidth: number;
   imageHeight: number;
   scaleFactor: number;
+  png?: Uint8Array;
 }
 
 export interface CursorSample {
