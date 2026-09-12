@@ -70,7 +70,7 @@
 - Modify: `src/ui/audioPlayback.ts`
 
 **Interfaces:**
-- `AudioCapture` exposes `start(): void`, `stop(): Promise<{audio: Uint8Array; mime: string; durationMs: number}>`, and `cancel(): void`.
+- `AudioCapture` exposes `start(): Promise<void>`, `stop(): Promise<{audio: Uint8Array; mime: string; durationMs: number}>`, and `cancel(): void` so microphone permission failures reach the recoverable error state.
 - `VoiceTurnTransport` exposes `transcribe`, `turn`, and `synthesize` calls using the existing authenticated service routes.
 - `VoiceTurnController` exposes `start()`, `stop()`, `cancel()`, `setMuted()`, and an `onState` callback for `idle`, `listening`, `thinking`, `speaking`, and `error`.
 
