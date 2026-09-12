@@ -65,11 +65,19 @@ export type IntentRouterRequest = {
   utterance: string;
   references: RouterReference[];
   allowedIntents: readonly Intent['kind'][];
+  today?: string;
+  timezone?: string;
 };
 
 export type IntentRouterProvider = (
   request: IntentRouterRequest,
 ) => Promise<unknown>;
+
+export type IntentRouterContext = {
+  freshReferences?: PurchaseRef[];
+  today?: string;
+  timezone?: string;
+};
 
 export type SessionClock = {
   now(): number;

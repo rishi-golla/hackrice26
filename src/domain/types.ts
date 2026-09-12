@@ -35,6 +35,13 @@ export type DayPoint = {
   closingCents: number;
 };
 
+export type ForecastDriver = {
+  id: string;
+  label: string;
+  date: string;
+  cents: number;
+};
+
 export type Forecast = {
   baseline: DayPoint[];
   afterPurchase: DayPoint[];
@@ -43,4 +50,5 @@ export type Forecast = {
   safeToSpendCents: number;
   purchaseCents: number;
   status: ForecastStatus;
+  drivers: ForecastDriver[];
 };
