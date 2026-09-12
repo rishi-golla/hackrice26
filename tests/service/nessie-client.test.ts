@@ -12,6 +12,13 @@ describe('NessieClient', () => {
     expect(requested).toBe('https://api.example.test/customers/c1?key=secret-key');
   });
 
+  it('uses the official production host by default', async () => {
+    let requested = '';
+    const client = new NessieClient({ apiKey: 'secret-key', fetchImpl: async (input) => { requested = String(input); return response({}); } });
+    await client.listAtms();
+    expect(requested).toBe('https://prod-api.nessieisreal.com/atms?key=secret-key');
+  });
+
   it.each([[401, 'auth'], [403, 'auth'], [404, 'not-found']] as const)('maps %s to %s', async (status, kind) => {
     const client = new NessieClient({ apiKey: 'secret', fetchImpl: async () => response({}, status), retryCount: 0 });
     let error!: NessieProviderError;
@@ -25,6 +32,25 @@ describe('NessieClient', () => {
     const client = new NessieClient({ apiKey: 'secret', retryCount: 1, fetchImpl: async () => ++attempts === 1 ? response({}, 503) : response({ _id: 'c1' }) });
     await expect(client.getCustomer('c1')).resolves.toEqual({ _id: 'c1' });
     expect(attempts).toBe(2);
+  });
+
+  it('retries a 429 and succeeds', async () => {
+    let attempts = 0;
+    const client = new NessieClient({ apiKey: 'secret', retryCount: 1, fetchImpl: async () => ++attempts === 1 ? response({}, 429) : response({ ok: true }) });
+    await expect(client.getCustomer('c1')).resolves.toEqual({ ok: true });
+    expect(attempts).toBe(2);
+  });
+
+  it('retries a network failure and succeeds', async () => {
+    let attempts = 0;
+    const client = new NessieClient({ apiKey: 'secret', retryCount: 1, fetchImpl: async () => { attempts += 1; if (attempts === 1) throw new Error('network'); return response({ ok: true }); } });
+    await expect(client.getCustomer('c1')).resolves.toEqual({ ok: true });
+    expect(attempts).toBe(2);
+  });
+
+  it('rejects invalid retry and timeout options', () => {
+    expect(() => new NessieClient({ apiKey: 'secret', retryCount: Infinity })).toThrowError(/retry count/);
+    expect(() => new NessieClient({ apiKey: 'secret', timeoutMs: 0 })).toThrowError(/timeout/);
   });
 
   it('maps timeout aborts to transient', async () => {

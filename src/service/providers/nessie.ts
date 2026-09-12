@@ -31,9 +31,15 @@ export class NessieClient {
   constructor(options: NessieClientOptions) {
     if (!options.apiKey) throw new NessieProviderError('configuration', 'Nessie API key is required');
     this.apiKey = options.apiKey;
-    this.baseUrl = options.baseUrl ?? 'http://api.reimaginebanking.com';
+    this.baseUrl = options.baseUrl ?? 'https://prod-api.nessieisreal.com';
     this.timeoutMs = options.timeoutMs ?? 10_000;
-    this.retryCount = Math.max(0, options.retryCount ?? 2);
+    this.retryCount = options.retryCount ?? 2;
+    if (!Number.isFinite(this.timeoutMs) || !Number.isInteger(this.timeoutMs) || this.timeoutMs <= 0) {
+      throw new NessieProviderError('configuration', 'Nessie timeout must be a positive integer');
+    }
+    if (!Number.isFinite(this.retryCount) || !Number.isInteger(this.retryCount) || this.retryCount < 0) {
+      throw new NessieProviderError('configuration', 'Nessie retry count must be a nonnegative integer');
+    }
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
