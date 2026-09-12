@@ -515,7 +515,6 @@ final class CompanionManager: ObservableObject {
                     self.onboardingPromptText = ""
                 }
             }
-    
 
             ClickyAnalytics.trackPushToTalkStarted()
 
