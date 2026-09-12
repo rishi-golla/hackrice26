@@ -6,6 +6,8 @@ import { createConversationManager } from './conversation/controller';
 import { createDemoAuthProvider, type CappyAuthProvider, type CappySession } from './auth';
 import { ProfileStore } from './profile';
 import { assertAccountAccess } from './policy';
+import { createCappyToolRegistry, type CappyToolRegistry } from './tools';
+import { createDeterministicFormatter, type CappyModelProvider } from './model';
 
 export interface ServerConfig {
   sessionToken: string;
@@ -18,6 +20,8 @@ export interface ServiceDependencies {
   synthesize?: (text: string) => Promise<Uint8Array>;
   auth?: CappyAuthProvider;
   profiles?: ProfileStore;
+  tools?: CappyToolRegistry;
+  model?: CappyModelProvider;
 }
 const cents = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const identifier = z.string().min(1).max(120);
@@ -31,6 +35,8 @@ export function buildServer(config: ServerConfig, provider: SnapshotProvider, de
   const conversation = deps.conversation ?? createConversationManager();
   const auth = deps.auth ?? createDemoAuthProvider();
   const profiles = deps.profiles ?? new ProfileStore();
+  const tools = deps.tools ?? createCappyToolRegistry({ snapshot: accountId => store.get(accountId, false) });
+  const model = deps.model ?? createDeterministicFormatter();
   const authenticated = new WeakMap<object, CappySession>();
   const validServiceToken = (value: string | undefined) => value === `Bearer ${config.sessionToken}`;
   server.addHook('onRequest', async (request, reply) => {
@@ -84,6 +90,11 @@ export function buildServer(config: ServerConfig, provider: SnapshotProvider, de
     const query = z.object({ accountId: identifier, refresh: z.enum(['true', 'false']).optional() }).strict().parse(request.query);
     return store.get(accountFor(request, query.accountId), query.refresh === 'true');
   });
+  server.post('/tool', async request => {
+    const body = z.object({ name: identifier, input: z.unknown() }).strict().parse(request.body);
+    const session = current(request);
+    return tools.call(body.name, body.input, { session, profile: profiles.get(session.userId, session.accountId) });
+  });
   server.post('/forecast', async (request, reply) => {
     const body = z.object({ accountId: identifier, purchaseCents: cents, reserveCents: cents, allowStale: z.boolean().optional() }).strict().parse(request.body);
     const snapshot = await store.get(accountFor(request, body.accountId), true);
@@ -111,7 +122,14 @@ export function buildServer(config: ServerConfig, provider: SnapshotProvider, de
       candidateId: identifier.optional(), allowStale: z.boolean().optional(), hover: z.boolean().optional() }).strict().parse(request.body);
     const authSession = current(request); if (conversationSession(body.sessionId) !== authSession.accountId) throw Object.assign(new Error('Unknown account or session'), { statusCode: 403 });
     const snapshot = await store.get(authSession.accountId, !body.hover);
-    return conversation.turn(body, snapshot);
+    const reply = await conversation.turn(body, snapshot);
+    // The formatter is deliberately downstream of deterministic tool/forecast results.
+    // It may shape wording, but it never supplies financial facts.
+    if (model && snapshot.mode === 'synthetic' && reply.state === 'idle') {
+      const formatted = await model.complete({ system: 'Format the grounded Cappy answer without changing facts.', user: reply.text, tools: [] });
+      return { ...reply, text: formatted.text || reply.text };
+    }
+    return reply;
   });
   server.post('/cancel', async request => { const { sessionId } = sessionInput.parse(request.body); if (conversationSession(sessionId) !== current(request).accountId) throw Object.assign(new Error('Unknown account or session'), { statusCode: 403 }); conversation.cancel(sessionId); return { ok: true }; });
   server.post('/forget', async request => { const { sessionId } = sessionInput.parse(request.body); if (conversationSession(sessionId) !== current(request).accountId) throw Object.assign(new Error('Unknown account or session'), { statusCode: 403 }); conversation.forget(sessionId); return { ok: true }; });
