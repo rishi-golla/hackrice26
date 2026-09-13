@@ -3,4 +3,8 @@ main = "src/index.ts"
 compatibility_date = "2024-01-01"
 
 [vars]
-ELEVENLABS_VOICE_ID = "kPzsL2i3teMYv0FxEYQ6"
+# "kPzsL2i3teMYv0FxEYQ6" is a shared ElevenLabs library voice that returns
+# 402 Payment Required on this account's free plan (library voices need a
+# paid plan to use via the API). "pNInz6obpgDQGcFmaJgB" (Adam) is one of
+# ElevenLabs' premade voices, which are available on the free API tier.
+ELEVENLABS_VOICE_ID = "pNInz6obpgDQGcFmaJgB"

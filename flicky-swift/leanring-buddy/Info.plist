@@ -16,7 +16,7 @@
 	<!-- Cloudflare Worker proxy URL — all API calls go through this so keys stay server-side -->
 	<!-- Deploy worker/src/index.ts and paste the deployed URL here -->
 	<key>FLICKY_WORKER_URL</key>
-	<string>https://your-worker-name.your-subdomain.workers.dev</string>
+	<string>https://clicky-proxy.abhijithutla.workers.dev</string>
 
 	<!-- Capital One Nessie API credentials -->
 	<!-- Get from: https://nessieisreal.com — leave blank to run in demo mode -->

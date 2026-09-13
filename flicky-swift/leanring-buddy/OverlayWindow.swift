@@ -52,21 +52,121 @@ class OverlayWindow: NSWindow {
     }
 }
 
-// Cursor-like triangle shape (equilateral)
-struct Triangle: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let size = min(rect.width, rect.height)
-        let height = size * sqrt(3.0) / 2.0
+// Organic "gooey" blob outline. Eight points are sampled around a circle
+// and their radius is modulated by two overlapping sine waves so the
+// silhouette constantly jiggles instead of sitting as a perfect circle.
+// `wobbleTime` is fed a continuously increasing timestamp from a
+// TimelineView so the blob is always alive, even while the cursor is
+// perfectly still.
+struct BlobShape: Shape {
+    var wobbleTime: Double
 
-        // Top vertex
-        path.move(to: CGPoint(x: rect.midX, y: rect.midY - height / 1.5))
-        // Bottom left vertex
-        path.addLine(to: CGPoint(x: rect.midX - size / 2, y: rect.midY + height / 3))
-        // Bottom right vertex
-        path.addLine(to: CGPoint(x: rect.midX + size / 2, y: rect.midY + height / 3))
+    func path(in rect: CGRect) -> Path {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let baseRadius = min(rect.width, rect.height) / 2
+        let pointCount = 8
+
+        var points: [CGPoint] = []
+        for pointIndex in 0..<pointCount {
+            let angle = (Double(pointIndex) / Double(pointCount)) * 2 * Double.pi
+            let wobble = sin(angle * 3 + wobbleTime * 1.6) * 0.07
+                       + sin(angle * 2 - wobbleTime * 1.1) * 0.05
+            let radius = baseRadius * (1.0 + wobble)
+            points.append(CGPoint(
+                x: center.x + CGFloat(cos(angle)) * radius,
+                y: center.y + CGFloat(sin(angle)) * radius
+            ))
+        }
+
+        // Connect the sampled points with quadratic curves through their
+        // midpoints so the outline is smooth and rounded rather than
+        // faceted, giving it a soft "slime" look.
+        func midpoint(_ pointA: CGPoint, _ pointB: CGPoint) -> CGPoint {
+            CGPoint(x: (pointA.x + pointB.x) / 2, y: (pointA.y + pointB.y) / 2)
+        }
+
+        var path = Path()
+        path.move(to: midpoint(points[points.count - 1], points[0]))
+        for pointIndex in 0..<points.count {
+            let currentPoint = points[pointIndex]
+            let nextPoint = points[(pointIndex + 1) % points.count]
+            path.addQuadCurve(to: midpoint(currentPoint, nextPoint), control: currentPoint)
+        }
         path.closeSubpath()
         return path
+    }
+}
+
+// Two small blinking eyes rendered on top of the blob body to give it
+// personality. Blinks on a random 2.5–5s cadence, independent of cursor
+// movement, so the buddy feels alive even when idle.
+private struct BlobEyesView: View {
+    @State private var isBlinking = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            eye
+            eye
+        }
+        .offset(y: -1)
+        .onAppear { scheduleNextBlink() }
+    }
+
+    private var eye: some View {
+        ZStack {
+            Circle()
+                .fill(Color.white)
+                .frame(width: 4, height: isBlinking ? 0.5 : 4)
+            if !isBlinking {
+                Circle()
+                    .fill(Color.black)
+                    .frame(width: 2, height: 2)
+            }
+        }
+    }
+
+    private func scheduleNextBlink() {
+        let delayUntilNextBlink = Double.random(in: 2.5...5.0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delayUntilNextBlink) {
+            withAnimation(.easeInOut(duration: 0.08)) { isBlinking = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                withAnimation(.easeInOut(duration: 0.08)) { isBlinking = false }
+                scheduleNextBlink()
+            }
+        }
+    }
+}
+
+// The cute blob buddy that replaces the old blue triangle cursor. Combines
+// the wobbling BlobShape body, a soft gradient fill + glow, a gentle idle
+// "breathing" pulse, blinking eyes, and a squash-and-stretch deformation
+// driven by how fast the buddy is currently moving (see `stretchAmountX`
+// / `stretchAmountY` in BlueCursorView) for a springy, gooey feel.
+struct CursorBlobView: View {
+    let stretchAmountX: CGFloat
+    let stretchAmountY: CGFloat
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timelineContext in
+            let wobbleTime = timelineContext.date.timeIntervalSinceReferenceDate
+            let idleBreathingPulse = 1.0 + CGFloat(sin(wobbleTime * 2.4)) * 0.04
+
+            ZStack {
+                BlobShape(wobbleTime: wobbleTime)
+                    .fill(
+                        RadialGradient(
+                            colors: [DS.Colors.overlayCursorBlue.opacity(0.85), DS.Colors.overlayCursorBlue],
+                            center: .topLeading,
+                            startRadius: 1,
+                            endRadius: 16
+                        )
+                    )
+                    .frame(width: 18, height: 18)
+                    .scaleEffect(x: idleBreathingPulse + stretchAmountX, y: idleBreathingPulse + stretchAmountY)
+
+                BlobEyesView()
+            }
+        }
     }
 }
 
@@ -135,9 +235,20 @@ struct BlueCursorView: View {
     /// The buddy's current behavioral mode (following cursor, navigating, or pointing).
     @State private var buddyNavigationMode: BuddyNavigationMode = .followingCursor
 
-    /// The rotation angle of the triangle in degrees. Default is -35° (cursor-like).
-    /// Changes to face the direction of travel when navigating to a target.
-    @State private var triangleRotationDegrees: Double = -35.0
+    /// The rotation angle used while flying to/from a detected element, in degrees.
+    /// Kept at 0 during normal cursor following (the blob doesn't point like the
+    /// old triangle did — direction is instead conveyed by squash-and-stretch).
+    @State private var buddyRotationDegrees: Double = 0.0
+
+    /// Squash-and-stretch deformation applied to the blob body based on how fast
+    /// it's currently moving, giving it a springy, gooey feel as it chases the
+    /// cursor. Eased toward a target value each tracking tick rather than snapping.
+    @State private var blobStretchAmountX: CGFloat = 0.0
+    @State private var blobStretchAmountY: CGFloat = 0.0
+
+    /// The buddy's position on the previous cursor-tracking tick, used to compute
+    /// per-axis velocity for the squash-and-stretch effect.
+    @State private var blobPreviousTrackedPosition: CGPoint = .zero
 
     /// Speech bubble text shown when pointing at a detected element.
     @State private var navigationBubbleText: String = ""
@@ -294,18 +405,17 @@ struct BlueCursorView: View {
                     }
             }
 
-            // Blue triangle cursor — shown when idle or while TTS is playing (responding).
-            // All three states (triangle, waveform, spinner) stay in the view tree
+            // Cute blob cursor — shown when idle or while TTS is playing (responding).
+            // All three states (blob, waveform, spinner) stay in the view tree
             // permanently and cross-fade via opacity so SwiftUI doesn't remove/re-insert
             // them (which caused a visible cursor "pop").
             //
-            // During cursor following: fast spring animation for snappy tracking.
-            // During navigation: NO implicit animation — the frame-by-frame bezier
-            // timer controls position directly at 60fps for a smooth arc flight.
-            Triangle()
-                .fill(DS.Colors.overlayCursorBlue)
-                .frame(width: 16, height: 16)
-                .rotationEffect(.degrees(triangleRotationDegrees))
+            // During cursor following: fast spring animation for snappy tracking, plus
+            // squash-and-stretch driven by blobStretchAmountX/Y for a springy, gooey feel.
+            // During navigation: NO implicit position animation — the frame-by-frame
+            // bezier timer controls position directly at 60fps for a smooth arc flight.
+            CursorBlobView(stretchAmountX: blobStretchAmountX, stretchAmountY: blobStretchAmountY)
+                .rotationEffect(.degrees(buddyRotationDegrees))
                 .shadow(color: DS.Colors.overlayCursorBlue, radius: 8 + (buddyFlightScale - 1.0) * 20, x: 0, y: 0)
                 .scaleEffect(buddyFlightScale)
                 .opacity(buddyIsVisibleOnThisScreen && (companionManager.voiceState == .idle || companionManager.voiceState == .responding) ? cursorOpacity : 0)
@@ -319,7 +429,7 @@ struct BlueCursorView: View {
                 .animation(.easeIn(duration: 0.25), value: companionManager.voiceState)
                 .animation(
                     buddyNavigationMode == .navigatingToTarget ? nil : .easeInOut(duration: 0.3),
-                    value: triangleRotationDegrees
+                    value: buddyRotationDegrees
                 )
 
             // Blue waveform — replaces the triangle while listening
@@ -346,6 +456,7 @@ struct BlueCursorView: View {
 
             let swiftUIPosition = convertScreenPointToSwiftUICoordinates(mouseLocation)
             self.cursorPosition = CGPoint(x: swiftUIPosition.x + 35, y: swiftUIPosition.y + 25)
+            self.blobPreviousTrackedPosition = self.cursorPosition
 
             startTrackingCursor()
 
@@ -438,7 +549,22 @@ struct BlueCursorView: View {
             let swiftUIPosition = self.convertScreenPointToSwiftUICoordinates(mouseLocation)
             let buddyX = swiftUIPosition.x + 35
             let buddyY = swiftUIPosition.y + 25
-            self.cursorPosition = CGPoint(x: buddyX, y: buddyY)
+            let newPosition = CGPoint(x: buddyX, y: buddyY)
+
+            // Squash-and-stretch: derive per-axis velocity from how far the buddy
+            // moved since the last tick, then ease the blob's stretch toward a
+            // target derived from that velocity so it deforms smoothly instead of
+            // snapping — this is what gives the blob its gooey, springy feel.
+            let deltaX = newPosition.x - self.blobPreviousTrackedPosition.x
+            let deltaY = newPosition.y - self.blobPreviousTrackedPosition.y
+            self.blobPreviousTrackedPosition = newPosition
+
+            let targetStretchX = min(abs(deltaX) / 20.0, 0.35)
+            let targetStretchY = min(abs(deltaY) / 20.0, 0.35)
+            self.blobStretchAmountX += (targetStretchX - self.blobStretchAmountX) * 0.3
+            self.blobStretchAmountY += (targetStretchY - self.blobStretchAmountY) * 0.3
+
+            self.cursorPosition = newPosition
         }
     }
 
@@ -550,15 +676,19 @@ struct BlueCursorView: View {
 
             self.cursorPosition = CGPoint(x: bezierX, y: bezierY)
 
-            // Rotation: face the direction of travel by computing the tangent
-            // to the bezier curve. B'(t) = 2(1-t)(P1-P0) + 2t(P2-P1)
+            // Lean into the turn by computing the tangent to the bezier curve.
+            // B'(t) = 2(1-t)(P1-P0) + 2t(P2-P1)
             let tangentX = 2.0 * oneMinusT * (controlPoint.x - startPosition.x)
                          + 2.0 * t * (endPosition.x - controlPoint.x)
             let tangentY = 2.0 * oneMinusT * (controlPoint.y - startPosition.y)
                          + 2.0 * t * (endPosition.y - controlPoint.y)
-            // +90° offset because the triangle's "tip" points up at 0° rotation,
-            // and atan2 returns 0° for rightward movement
-            self.triangleRotationDegrees = atan2(tangentY, tangentX) * (180.0 / .pi) + 90.0
+            // Unlike the old triangle (which fully rotated to point in its
+            // direction of travel), the blob just leans gently left/right
+            // based on the horizontal component of travel — a full rotation
+            // would flip its eyes upside down when flying up or down.
+            let tangentMagnitude = hypot(tangentX, tangentY)
+            let normalizedHorizontalDirection = tangentMagnitude > 0 ? tangentX / tangentMagnitude : 0
+            self.buddyRotationDegrees = normalizedHorizontalDirection * 15.0
 
             // Scale pulse: sin curve peaks at midpoint of the flight.
             // Buddy grows to ~1.3x at the apex, then shrinks back to 1.0x on landing.
@@ -572,8 +702,8 @@ struct BlueCursorView: View {
     private func startPointingAtElement() {
         buddyNavigationMode = .pointingAtTarget
 
-        // Rotate back to default pointer angle now that we've arrived
-        triangleRotationDegrees = -35.0
+        // Settle back to upright now that we've arrived
+        buddyRotationDegrees = 0.0
 
         // Reset navigation bubble state — start small for the scale-bounce entrance
         navigationBubbleText = ""
@@ -664,7 +794,7 @@ struct BlueCursorView: View {
         navigationAnimationTimer = nil
         buddyNavigationMode = .followingCursor
         isReturningToCursor = false
-        triangleRotationDegrees = -35.0
+        buddyRotationDegrees = 0.0
         buddyFlightScale = 1.0
         navigationBubbleText = ""
         navigationBubbleOpacity = 0.0

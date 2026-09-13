@@ -643,7 +643,7 @@ final class CompanionManager: ObservableObject {
     }
 
     private func findBestDeal(results: [ProductSearchResult]) -> ProductSearchResult? {
-        // Prefer used/eBay/Marketplace results as "best deal"
+        // Prefer used/eBay/Marketplace results as "best deal"R
         return results.first { $0.isUsed }
     }
 
@@ -660,7 +660,8 @@ final class CompanionManager: ObservableObject {
     private func captureScreenshots() async -> [(data: Data, label: String)] {
         guard hasScreenContentPermission else { return [] }
         do {
-            return try await CompanionScreenCaptureUtility.captureAllDisplays()
+            let capturedScreens = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+            return capturedScreens.map { (data: $0.imageData, label: $0.label) }
         } catch {
             print("⚠️ Flicky: Screenshot capture failed: \(error.localizedDescription)")
             return []
@@ -739,12 +740,6 @@ You are the user's trusted financial advisor — warm, specific, direct. You giv
             asOf: Date()
         )
     }
-}
-
-// MARK: - Notification name (kept from Clicky)
-
-extension Notification.Name {
-    static let clickyDismissPanel = Notification.Name("clickyDismissPanel")
 }
 
 // MARK: - Onboarding Video Stubs (no-ops for Flicky — no onboarding video)

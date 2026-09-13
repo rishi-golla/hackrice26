@@ -374,7 +374,7 @@ struct CompanionPanelView: View {
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundColor(DS.Colors.textTertiary)
                 Spacer()
-                Text(""\(response.query)"")
+                Text("\"\(response.query)\"")
                     .font(.system(size: 9))
                     .foregroundColor(DS.Colors.textTertiary)
                     .lineLimit(1)

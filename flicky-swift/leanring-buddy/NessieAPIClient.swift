@@ -62,7 +62,7 @@ class NessieAPIClient {
             async let depositsFetch = fetchJSONArray(path: "/accounts/\(resolvedAccountId)/deposits")
             async let withdrawalsFetch = fetchJSONArray(path: "/accounts/\(resolvedAccountId)/withdrawals")
 
-            let (billsData, depositsData, withdrawalsData) = await (billsFetch, depositsFetch, withdrawalsFetch)
+            let (billsData, depositsData, withdrawalsData) = try await (billsFetch, depositsFetch, withdrawalsFetch)
 
             // 4. Parse upcoming bills (next 14 days, pending status)
             let today = Date()
