@@ -1,13 +1,37 @@
 # Clicky - Agent Instructions
 
-<!-- This is the single source of truth for all AI coding agents. CLAUDE.md is a symlink to this file. -->
+<!-- CLAUDE.md and AGENTS.md are separate files; keep shared product guidance in sync. -->
 <!-- AGENTS.md spec: https://github.com/agentsmd/agents.md — supported by Claude Code, Cursor, Copilot, Gemini CLI, and others. -->
 
 ## Overview
 
 macOS menu bar companion app. Lives entirely in the macOS status bar (no dock icon, no main window). Clicking the menu bar icon opens a custom floating panel with companion voice controls. Uses push-to-talk (ctrl+option) to capture voice input, transcribes it via AssemblyAI streaming, and sends the transcript + a screenshot of the user's screen to Claude. Claude responds with text (streamed via SSE) and voice (ElevenLabs TTS). A blue cursor overlay can fly to and point at UI elements Claude references on any connected monitor.
 
-All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in the app.
+AI and voice API keys live on the Cloudflare Worker proxy. The direct Nessie client can load its local key from `~/Library/Application Support/Flicky/nessie.plist`; keep that file owner-only and outside source control. Local Nessie settings override bundle configuration.
+
+## Flicky conversation and voice
+
+The app's spoken personality is defined in `leanring-buddy/FlickyPersonaConfig.swift`, injected by `CompanionManager.buildFlickySystemPrompt`. This Markdown file guides coding agents; it is not loaded by Claude at runtime. Update the Swift persona when changing product behavior.
+
+- Sound like a calm, knowledgeable person having a conversation. Answer first, use contractions and everyday language, and usually keep a voice turn to two to four sentences. Expand when the user needs depth.
+- No canned AI openings, constant follow-up questions, report headings, spoken bullet lists, forced slang, or repetitive financial disclaimers. Explain the specific uncertainty or risk where it affects the answer.
+- For stocks, distinguish business quality from valuation and general analysis from personal buy/sell advice. Have an evidence-based view; do not invent quotes, earnings, news, returns, credentials, or personal investing experience.
+- Be resourceful with actual available evidence and tools. The shopping search is not market/news search. Never claim live research without retrieved results. Explain an access gap briefly and offer a concrete next step.
+- Use account balances and bills only when relevant to the decision. Treat Nessie as sandbox data, not the user's production portfolio.
+- Speech should be relaxed, not rushed: ElevenLabs speed is `0.88`; system speech uses `AVSpeechUtteranceDefaultSpeechRate * 0.88`. The fallback explicitly prefers installed premium US English voices, then enhanced voices, with Ava preferred within each quality tier. The basic voice is only a last resort.
+- Preserve the exact action-tag grammar and financial-data safeguards when tuning tone. Human-sounding never means pretending to be human or making up certainty.
+
+## Realtime voice
+
+When `~/Library/Application Support/Flicky/realtime.json` is installed, Control + Option uses native OpenAI speech-to-speech (`gpt-realtime`, `marin`, speed 0.9). The file contains the private backend endpoint and client access token, not an OpenAI API key. Without it, the legacy AssemblyAI → Claude → ElevenLabs/system-voice flow remains available. Typed questions retain the Claude pipeline.
+
+`RealtimeVoiceClient.swift` captures 24 kHz mono PCM16 while the connection opens, streams input, commits on release, and plays audio deltas as they arrive. Transcription is only for the visible/history transcript; it is not an intermediate step used to generate the reply. Pressing the shortcut again or Stop cancels the connection and queued playback. Each turn uses a fresh session with only completed prior turns in history, avoiding unheard responses after interruptions. Recording is capped at 30 seconds; a turn times out after 120 seconds.
+
+The voice model can call `research_financial_question` (at most twice per turn), which uses the existing Claude, screenshot, Nessie evidence, and product-search pipeline. Never send spoken bracket action tags as a substitute for tool calls. It does not gain live stock quotes merely by switching voice providers.
+
+`realtime-worker/` is a separate authenticated Cloudflare Worker. `OPENAI_API_KEY` and `FLICKY_CLIENT_TOKEN` are Worker secrets; `/session` creates 60-second client credentials. Never put either permanent secret in source, Info.plist, logs, or the shipped app. Local `.dev.vars` files are ignored. Deploy with Wrangler from that directory. The existing Claude proxy is unchanged.
+
+Validation: `npm run typecheck` and `node --test tests/worker.test.mjs` in `realtime-worker/`. `scripts/checks/RealtimeVoiceCheck.swift` is a live, billable audio/tool/playback integration check using a synthesized audio fixture instead of the microphone. Build the application using Xcode, not terminal `xcodebuild`.
 
 ## Architecture
 
@@ -25,7 +49,7 @@ All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in th
 
 ### API Proxy (Cloudflare Worker)
 
-The app never calls external APIs directly. All requests go through a Cloudflare Worker (`worker/src/index.ts`) that holds the real API keys as secrets.
+AI and voice requests go through a Cloudflare Worker (`worker/src/index.ts`) that holds their API keys as secrets. Nessie sandbox requests use the native HTTPS client and its local, unbundled configuration.
 
 | Route | Upstream | Purpose |
 |-------|----------|---------|
@@ -37,6 +61,11 @@ Worker secrets: `ANTHROPIC_API_KEY`, `ASSEMBLYAI_API_KEY`, `ELEVENLABS_API_KEY`
 Worker vars: `ELEVENLABS_VOICE_ID`
 
 ### Key Architecture Decisions
+
+**Research and evidence**: `CompanionManager` owns `FlickyResearch`. A bounded model planner chooses independent specialist roles and relevant evidence keys. Specialists analyze the supplied screenshot and Nessie snapshot concurrently; the main answer synthesizes their findings and retains the existing product-search loop. Specialists have no independent web-search tool. Actual completion drives recall; cancellation invalidates the request generation. A dedicated nonactivating, click-through screen panel hosts SwiftUI Canvas circles at 30 fps only while present, with Reduce Motion support. The evidence panel keeps specialist status after flights end. Explicit comparison, affordability, spending-review, and subagent requests have deterministic fallback routing if the model planner fails or declines delegation. `[METRIC: balance|bills|spending|cashflow|rewards]` opens contextual, locally calculated evidence; dashboard/simulation tags are retired. Production never falls back to mock finances or loads the synthetic cohort. Nessie is sandbox data, and partial purchase failure is distinguished from zero spending.
+
+
+**Nessie identity and provenance**: With `FLICKY_NESSIE_DATA_SCOPE=enterprise`, entity detail requests use `/enterprise/customers/{id}`, `/enterprise/accounts/{id}`, and `/enterprise/merchants/{id}`. Account and transaction relationships keep their normal routes. Enterprise discovery exposes the shared sandbox dataset; developer lists show only key-scoped records. Each financial refresh reads the customer and `/customers/{id}/accounts`, validates account ownership, and fetches the selected account snapshot. `NessieConnectionPanel.swift` displays the API customer, all returned accounts, calculation inputs, and redacted request/response receipts with status, time, and received-byte SHA-256. These are app logs, not independent attestation. `../scripts/verify_nessie_connection.py` independently reads Nessie using local configuration; `../docs/nessie-judge-demo.md` describes the judge demo. Account changes clear conversation context before refreshing.
 
 **Menu Bar Panel Pattern**: The companion panel uses `NSStatusItem` for the menu bar icon and a custom borderless `NSPanel` for the floating control panel. This gives full control over appearance (dark, rounded corners, custom shadow) and avoids the standard macOS menu/popover chrome. The panel is non-activating so it doesn't steal focus. A global event monitor auto-dismisses it on outside clicks.
 
@@ -53,12 +82,14 @@ Worker vars: `ELEVENLABS_VOICE_ID`
 | File | Lines | Purpose |
 |------|-------|---------|
 | `leanring_buddyApp.swift` | ~89 | Menu bar app entry point. Uses `@NSApplicationDelegateAdaptor` with `CompanionAppDelegate` which creates `MenuBarPanelManager` and starts `CompanionManager`. No main window — the app lives entirely in the status bar. |
-| `CompanionManager.swift` | ~1026 | Central state machine. Owns dictation, shortcut monitoring, screen capture, Claude API, ElevenLabs TTS, and overlay management. Tracks voice state (idle/listening/processing/responding), conversation history, model selection, and cursor visibility. Coordinates the full push-to-talk → screenshot → Claude → TTS → pointing pipeline. |
+| `CompanionManager.swift` | ~1114 | Central state machine. Owns dictation, shortcut monitoring, screen capture, Claude API, ElevenLabs TTS, and overlay management. Tracks voice state (idle/listening/processing/responding), conversation history, model selection, and cursor visibility. Coordinates the full push-to-talk → screenshot → Claude → TTS → pointing pipeline. |
 | `MenuBarPanelManager.swift` | ~243 | NSStatusItem + custom NSPanel lifecycle. Creates the menu bar icon, manages the floating companion panel (show/hide/position), installs click-outside-to-dismiss monitor. |
 | `CompanionPanelView.swift` | ~666 | Translucent 480-point menu bar panel with account tiles, balance, live bill chips, text questions and suggestions, voice shortcut, model picker, permissions/login states, and account actions. |
-| `FinancialInsightsDashboardManager.swift` | ~934 | Presents the financial insights dashboard tabs, including the local synthetic-cohort scenario simulator. |
+| `FinancialInsightsDashboardManager.swift` | ~934 | Legacy dashboard retained as source; no longer opened by the panel or response tags. |
+| `FlickyResearch.swift` | ~660 | Routes complex questions to up to three concurrent Claude specialists, animates their split/orbit/recall, and renders contextual Nessie evidence in a dismissible panel. |
 | `NessieSimulation.swift` | ~635 | Loads the deterministic synthetic cohort, calculates peer metrics and projections, and renders the purchase-impact simulator. |
-| `NessieAPIClient.swift` | ~326 | Reads live Nessie account balances, bills, deposits, withdrawals, and spending categories for the selected demo customer. |
+| `NessieConnectionPanel.swift` | ~200 | Customer/account selector and API request inspector with refresh, redacted JSON, and export. |
+| `NessieAPIClient.swift` | ~349 | Reads live Nessie account balances, bills, deposits, withdrawals, and spending categories for the selected demo customer. |
 | `OverlayWindow.swift` | ~881 | Full-screen transparent overlay hosting the blue cursor, response text, waveform, and spinner. Handles cursor animation, element pointing with bezier arcs, multi-monitor coordinate mapping, and fade-out transitions. |
 | `CompanionResponseOverlay.swift` | ~217 | SwiftUI view for the response text bubble and waveform displayed next to the cursor in the overlay. |
 | `CompanionScreenCaptureUtility.swift` | ~132 | Multi-monitor screenshot capture using ScreenCaptureKit. Returns labeled image data for each connected display. |
@@ -71,12 +102,13 @@ Worker vars: `ELEVENLABS_VOICE_ID`
 | `GlobalPushToTalkShortcutMonitor.swift` | ~132 | System-wide push-to-talk monitor. Owns the listen-only `CGEvent` tap and publishes press/release transitions. |
 | `ClaudeAPI.swift` | ~291 | Claude vision API client with streaming (SSE) and non-streaming modes. TLS warmup optimization, image MIME detection, conversation history support. |
 | `OpenAIAPI.swift` | ~142 | OpenAI GPT vision API client. |
-| `ElevenLabsTTSClient.swift` | ~81 | ElevenLabs TTS client. Sends text to the Worker proxy, plays back audio via `AVAudioPlayer`. Exposes `isPlaying` for transient cursor scheduling. |
+| `RealtimeVoiceClient.swift` | ~425 | Native PCM audio capture, ephemeral Realtime WebSocket, streamed playback, transcript, research tool calls, time limits, and cancellation. |
+| `ElevenLabsTTSClient.swift` | ~165 | Remote speech at a relaxed pace; falls back to the highest-quality installed US English voice (Ava preferred). Preserves playback completion, Stop, and cancellation behavior. |
 | `ElementLocationDetector.swift` | ~335 | Detects UI element locations in screenshots for cursor pointing. |
 | `DesignSystem.swift` | ~880 | Design system tokens — colors, corner radii, shared styles. All UI references `DS.Colors`, `DS.CornerRadius`, etc. |
 | `ClickyAnalytics.swift` | ~121 | PostHog analytics integration for usage tracking. |
 | `WindowPositionManager.swift` | ~262 | Window placement logic, Screen Recording permission flow, and accessibility permission helpers. |
-| `AppBundleConfiguration.swift` | ~28 | Runtime configuration reader for keys stored in the app bundle Info.plist. |
+| `AppBundleConfiguration.swift` | ~40 | Runtime configuration reader with local, unbundled Nessie settings and Info.plist fallback. |
 | `worker/src/index.ts` | ~142 | Cloudflare Worker proxy. Three routes: `/chat` (Claude), `/tts` (ElevenLabs), `/transcribe-token` (AssemblyAI temp token). |
 
 ## Build & Run

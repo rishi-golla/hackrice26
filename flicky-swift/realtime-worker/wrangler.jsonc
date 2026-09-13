@@ -1,0 +1,18 @@
+{
+  "name": "flicky-realtime",
+  "main": "src/index.ts",
+  "account_id": "151c8978ee2086b2686664e29806649c",
+  "compatibility_date": "2026-09-13",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "secrets": {
+    "required": [
+      "OPENAI_API_KEY",
+      "FLICKY_CLIENT_TOKEN"
+    ]
+  }
+}

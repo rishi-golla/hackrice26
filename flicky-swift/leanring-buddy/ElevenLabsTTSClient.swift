@@ -11,7 +11,7 @@ import AVFoundation
 import Foundation
 
 @MainActor
-final class ElevenLabsTTSClient: NSObject, @preconcurrency AVAudioPlayerDelegate {
+final class ElevenLabsTTSClient: NSObject, @preconcurrency AVAudioPlayerDelegate, @preconcurrency AVSpeechSynthesizerDelegate {
     private let proxyURL: URL
     private let session: URLSession
 
@@ -19,19 +19,46 @@ final class ElevenLabsTTSClient: NSObject, @preconcurrency AVAudioPlayerDelegate
     /// audio finishes playing even if the caller doesn't hold a reference.
     private var audioPlayer: AVAudioPlayer?
     private var playbackFinished: (() -> Void)?
+    private let speechSynthesizer = AVSpeechSynthesizer()
+    private var activeUtterance: AVSpeechUtterance?
+    private var playbackRequestIdentifier = UUID()
 
-    init(proxyURL: String) {
+    init(proxyURL: String, session: URLSession? = nil) {
         self.proxyURL = URL(string: proxyURL)!
 
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 60
-        self.session = URLSession(configuration: configuration)
+        self.session = session ?? URLSession(configuration: configuration)
     }
 
     /// Sends `text` to ElevenLabs TTS and plays the resulting audio.
-    /// Throws on network or decoding errors. Cancellation-safe.
+    /// Falls back to the system voice when remote synthesis fails.
     func speakText(_ text: String, onPlaybackFinished: (() -> Void)? = nil) async throws {
+        stopPlayback()
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            onPlaybackFinished?()
+            return
+        }
+        let requestIdentifier = playbackRequestIdentifier
+        do {
+            try await playRemoteSpeech(text, requestIdentifier: requestIdentifier, onPlaybackFinished: onPlaybackFinished)
+        } catch {
+            try Task.checkCancellation()
+            guard requestIdentifier == playbackRequestIdentifier else { throw CancellationError() }
+            print("⚠️ ElevenLabs TTS unavailable; using system voice: \(error.localizedDescription)")
+            let utterance = AVSpeechUtterance(string: text)
+            utterance.voice = Self.preferredSystemVoice()
+            utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.88
+            speechSynthesizer.delegate = self
+            activeUtterance = utterance
+            playbackFinished = onPlaybackFinished
+            speechSynthesizer.speak(utterance)
+        }
+    }
+
+    private func playRemoteSpeech(_ text: String, requestIdentifier: UUID, onPlaybackFinished: (() -> Void)?) async throws {
+        try Task.checkCancellation()
         var request = URLRequest(url: proxyURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -43,11 +70,7 @@ final class ElevenLabsTTSClient: NSObject, @preconcurrency AVAudioPlayerDelegate
             "voice_settings": [
                 "stability": 0.5,
                 "similarity_boost": 0.75,
-                // The user asked for Flicky to "speak really fast" — like a
-                // friend giving you a quick, confident answer rather than a
-                // scripted assistant. 1.15 is close to ElevenLabs' fastest
-                // supported speed (max ~1.2) while staying intelligible.
-                "speed": 1.15
+                "speed": 0.88
             ]
         ]
 
@@ -67,6 +90,7 @@ final class ElevenLabsTTSClient: NSObject, @preconcurrency AVAudioPlayerDelegate
         }
 
         try Task.checkCancellation()
+        guard requestIdentifier == playbackRequestIdentifier else { throw CancellationError() }
 
         let player = try AVAudioPlayer(data: data)
         player.delegate = self
@@ -81,13 +105,30 @@ final class ElevenLabsTTSClient: NSObject, @preconcurrency AVAudioPlayerDelegate
         print("🔊 ElevenLabs TTS: playing \(data.count / 1024)KB audio")
     }
 
-    /// Whether TTS audio is currently playing back.
+    static func preferredSystemVoice() -> AVSpeechSynthesisVoice? {
+        let voices = AVSpeechSynthesisVoice.speechVoices().filter {
+            $0.language == "en-US" && $0.quality.rawValue > AVSpeechSynthesisVoiceQuality.default.rawValue
+        }
+        // Explicit selection avoids macOS silently using its compact default voice.
+        return voices.sorted {
+            if $0.quality != $1.quality { return $0.quality.rawValue > $1.quality.rawValue }
+            let firstIsAva = $0.name.hasPrefix("Ava")
+            let secondIsAva = $1.name.hasPrefix("Ava")
+            if firstIsAva != secondIsAva { return firstIsAva }
+            return $0.identifier < $1.identifier
+        }.first ?? AVSpeechSynthesisVoice(language: "en-US")
+    }
+
+    /// Whether remote or system speech is currently playing back.
     var isPlaying: Bool {
-        audioPlayer?.isPlaying ?? false
+        (audioPlayer?.isPlaying ?? false) || activeUtterance != nil
     }
 
     /// Stops any in-progress playback immediately.
     func stopPlayback() {
+        playbackRequestIdentifier = UUID()
+        activeUtterance = nil
+        speechSynthesizer.stopSpeaking(at: .immediate)
         audioPlayer?.stop()
         audioPlayer = nil
         playbackFinished = nil
@@ -96,6 +137,14 @@ final class ElevenLabsTTSClient: NSObject, @preconcurrency AVAudioPlayerDelegate
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         guard player === audioPlayer else { return }
         audioPlayer = nil
+        let callback = playbackFinished
+        playbackFinished = nil
+        callback?()
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        guard utterance === activeUtterance else { return }
+        activeUtterance = nil
         let callback = playbackFinished
         playbackFinished = nil
         callback?()

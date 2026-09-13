@@ -226,9 +226,22 @@ private struct SuggestionsDrawerView: View {
             Image(systemName: "bag")
                 .font(.system(size: 20))
                 .foregroundColor(DS.Colors.textTertiary)
-            Text("No listings yet")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(DS.Colors.textTertiary)
+            Text("No matches returned")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(DS.Colors.textPrimary)
+            Text("Try a more specific product name, or continue with a web search.")
+                .font(.system(size: 12))
+                .foregroundColor(DS.Colors.textSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
+            Button("Search the web") {
+                var components = URLComponents(string: "https://www.google.com/search")!
+                components.queryItems = [URLQueryItem(name: "q", value: viewModel.query)]
+                if let url = components.url { NSWorkspace.shared.open(url) }
+            }
+            .buttonStyle(.bordered)
+            .pointerCursor()
+            .padding(.top, 10)
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

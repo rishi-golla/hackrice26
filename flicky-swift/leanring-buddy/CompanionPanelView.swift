@@ -86,19 +86,23 @@ struct CompanionPanelView: View {
 
     private var optionsButton: some View {
         ZStack(alignment: .topTrailing) {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(secondaryText)
-                .frame(width: 34, height: 34)
-                .background(Circle().fill(.white.opacity(isOptionsMenuPresented ? 0.08 : 0.035)))
-                .overlay(Circle().strokeBorder(.white.opacity(isOptionsMenuPresented ? 0.26 : 0.16), lineWidth: 1))
-                .contentShape(Circle())
-                .onTapGesture {
-                    withAnimation(.easeOut(duration: 0.16)) {
-                        isOptionsMenuPresented.toggle()
-                    }
+            Button {
+                withAnimation(.easeOut(duration: 0.16)) {
+                    isOptionsMenuPresented.toggle()
                 }
-                .accessibilityHidden(true)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(secondaryText)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(.white.opacity(isOptionsMenuPresented ? 0.08 : 0.035)))
+                    .overlay(Circle().strokeBorder(.white.opacity(isOptionsMenuPresented ? 0.26 : 0.16), lineWidth: 1))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .focusEffectDisabled()
+            .accessibilityLabel("Flicky options")
+            .accessibilityHint("Show Flicky actions")
             .pointerCursor()
 
             if isOptionsMenuPresented {
@@ -106,10 +110,6 @@ struct CompanionPanelView: View {
                     optionsMenuButton("Refresh account", icon: "arrow.clockwise", isDisabled: !companionManager.isLoggedIn) {
                         isOptionsMenuPresented = false
                         Task { await companionManager.refreshFinancialData() }
-                    }
-                    optionsMenuButton("View full insights", icon: "chart.bar.xaxis", isDisabled: companionManager.financialInsights == nil) {
-                        isOptionsMenuPresented = false
-                        companionManager.insightsDashboardManager.toggle()
                     }
                     optionsMenuButton("Dismiss panel", icon: "xmark") {
                         isOptionsMenuPresented = false
@@ -128,14 +128,14 @@ struct CompanionPanelView: View {
                 .frame(width: 220)
                 .background {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color(red: 0.055, green: 0.06, blue: 0.07).opacity(0.98))
+                        .fill(Color(red: 0.055, green: 0.06, blue: 0.07))
                         .overlay {
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
                                 .strokeBorder(.white.opacity(0.2), lineWidth: 1)
                         }
                         .shadow(color: .black.opacity(0.45), radius: 18, y: 10)
                 }
-                .offset(x: 0, y: 44)
+                .offset(x: -90, y: 44)
                 .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .topTrailing)))
                 .zIndex(20)
             }
@@ -196,7 +196,7 @@ struct CompanionPanelView: View {
                 }
             }
 
-            Text("Enter your Nessie Customer ID to connect your Capital One data. Leave blank for demo mode.")
+            Text("Enter your Nessie Customer ID to load your sandbox account data.")
                 .font(.system(size: 11))
                 .foregroundColor(DS.Colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -206,7 +206,7 @@ struct CompanionPanelView: View {
                 Text("CUSTOMER ID")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundColor(DS.Colors.textTertiary)
-                TextField("Nessie customer_id (or leave blank for demo)", text: $loginCustomerId)
+                TextField("Nessie customer_id", text: $loginCustomerId)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
                     .foregroundColor(DS.Colors.textPrimary)
@@ -294,10 +294,10 @@ struct CompanionPanelView: View {
                             .frame(width: 32, height: 24)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Capital One").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                            Text("Connected").font(.system(size: 12)).foregroundStyle(secondaryText)
+                            Text(companionManager.financialInsights == nil ? "Not verified" : "Nessie sandbox").font(.system(size: 12)).foregroundStyle(secondaryText)
                         }
                         Spacer(minLength: 0)
-                        connectionCheck
+                        if companionManager.financialInsights != nil { connectionCheck }
                     }
                     .frame(width: 168)
                     .padding(12)
@@ -305,10 +305,10 @@ struct CompanionPanelView: View {
                     .help(state.maskedCardNumber)
 
                     HStack(spacing: 10) {
-                        Image(systemName: "envelope.fill")
+                        Image(systemName: "person.crop.circle")
                             .font(.system(size: 20))
                             .foregroundStyle(secondaryText)
-                        Text(state.displayEmail)
+                        Text(companionManager.nessieCustomer?.name ?? "Customer not verified")
                             .font(.system(size: 12, weight: .medium))
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
@@ -320,9 +320,44 @@ struct CompanionPanelView: View {
                     .frame(height: 34)
                     .padding(12)
                     .background(tileBackground())
-                    .help(state.displayEmail)
+                    .help(companionManager.nessieCustomer.map { "Nessie customer: " + $0.id } ?? "Refresh to retrieve the customer from Nessie")
                 }
             }
+
+            if let customer = companionManager.nessieCustomer {
+                HStack(spacing: 10) {
+                    Menu {
+                        ForEach(customer.accounts) { account in
+                            Button {
+                                Task { await companionManager.selectNessieAccount(account) }
+                            } label: {
+                                Label(account.nickname + " · " + account.type,
+                                      systemImage: account.id == companionManager.loginState?.accountId ? "checkmark.circle.fill" : "circle")
+                            }
+                        }
+                    } label: {
+                        Text(customer.accounts.first(where: { $0.id == companionManager.loginState?.accountId })?.nickname ?? "Select account")
+                            .font(.system(size: 12, weight: .medium)).lineLimit(1)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .disabled(companionManager.isLoadingFinancials)
+                    .pointerCursor(isEnabled: !companionManager.isLoadingFinancials)
+                    .accessibilityLabel("Select Nessie account")
+                    Text("\(customer.accounts.count) account\(customer.accounts.count == 1 ? "" : "s")")
+                        .font(.system(size: 11)).foregroundStyle(secondaryText)
+                }
+            }
+            Button { companionManager.nessieConnectionPanel.show() } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "network")
+                    Text("API connection details")
+                    Spacer()
+                    if let lastRequest = companionManager.nessieRequests.last {
+                        Text(lastRequest.fetchedAt.formatted(date: .omitted, time: .standard)).monospacedDigit()
+                    }
+                    Image(systemName: "arrow.up.right")
+                }.font(.system(size: 11, weight: .medium)).foregroundStyle(secondaryText)
+            }.buttonStyle(.plain).pointerCursor()
 
             if let insights = companionManager.financialInsights {
                 VStack(spacing: 3) {
@@ -357,7 +392,7 @@ struct CompanionPanelView: View {
                     HStack(spacing: 10) {
                         ForEach(bills.prefix(3)) { bill in
                             Button {
-                                companionManager.insightsDashboardManager.toggle()
+                                companionManager.research.showMetrics(["bills"], snapshot: companionManager.financialInsights)
                             } label: {
                                 HStack(spacing: 8) {
                                     merchantIcon(bill.label)
@@ -373,7 +408,7 @@ struct CompanionPanelView: View {
                             .help("\(bill.label): \(bill.formattedAmount), due \(bill.date)")
                         }
                         if bills.count > 3 {
-                            Button { companionManager.insightsDashboardManager.toggle() } label: {
+                            Button { companionManager.research.showMetrics(["bills"], snapshot: companionManager.financialInsights) } label: {
                                 Text("+\(bills.count - 3)")
                                     .font(.system(size: 12, weight: .medium))
                                     .frame(width: 46, height: 38)

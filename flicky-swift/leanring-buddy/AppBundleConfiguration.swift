@@ -9,6 +9,16 @@ import Foundation
 
 enum AppBundleConfiguration {
     static func stringValue(forKey key: String) -> String? {
+        // Local Nessie credentials stay outside the repository and the distributed app bundle.
+        if key.hasPrefix("FLICKY_NESSIE_"),
+           let supportDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+           let data = try? Data(contentsOf: supportDirectory.appendingPathComponent("Flicky/nessie.plist")),
+           let configuration = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: String],
+           let value = configuration[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !value.isEmpty {
+            return value
+        }
+
         if let value = Bundle.main.object(forInfoDictionaryKey: key) as? String {
             let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmedValue.isEmpty {

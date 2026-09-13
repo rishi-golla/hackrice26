@@ -16,12 +16,12 @@
    - `leanring-buddy/FinancialModels.swift`
    - `leanring-buddy/NessieAPIClient.swift`
 
-4. **Configure API keys in Info.plist**
-   Open `leanring-buddy/Info.plist` and set:
-   - `FLICKY_WORKER_URL` → your Cloudflare Worker URL (deploy `worker/src/index.ts` first)
-   - `FLICKY_NESSIE_API_KEY` → your Capital One Nessie API key
-   - `FLICKY_NESSIE_CUSTOMER_ID` → your Nessie customer ID
-   - Leave blank for demo mode (uses mock financial data)
+4. **Configure services**
+   - Set `FLICKY_WORKER_URL` in `leanring-buddy/Info.plist` to your Cloudflare Worker URL.
+   - Store local Nessie configuration at `~/Library/Application Support/Flicky/nessie.plist`, a property-list dictionary with `FLICKY_NESSIE_API_KEY`, `FLICKY_NESSIE_BASE_URL`, and `FLICKY_NESSIE_AMOUNT_UNIT` strings. Restrict the file to owner read/write (`chmod 600`).
+   - Local `FLICKY_NESSIE_*` values override bundle settings; the credential does not need to be committed or compiled into the app. The root `.env` alone is not read by the native app.
+   - Use `https://prod-api.nessieisreal.com` and `dollars` unless your sandbox requires different settings.
+   - Sign in with an existing Nessie Customer ID. A valid API key with no customers/accounts is an empty sandbox, not a populated demo.
 
 5. **Build and run** (Cmd+R)
 
@@ -70,17 +70,16 @@ On first launch, Flicky will ask you to grant:
 
 ---
 
-## Demo Mode
+## Sandbox Data
 
-If you don't have Nessie API credentials, leave `FLICKY_NESSIE_API_KEY` blank in Info.plist.
-Flicky will use mock financial data ($1,312 balance, $312 safe to spend, mock bills) — fully functional for demos.
+Flicky reads records from Nessie and never substitutes local mock finances. A new API key may have no customers or accounts. Create or seed a clearly labeled sandbox profile before expecting balances, bills, or purchase charts.
 
 ---
 
 ## Capital One Login (In-App)
 
 The Flicky panel shows a Capital One login form. Enter:
-- **Customer ID**: your Nessie `customer_id` (or leave blank for demo mode)
+- **Customer ID**: your existing Nessie `customer_id`
 - **Email**: displayed as account identifier
 
 After login, the panel shows:
@@ -90,3 +89,7 @@ After login, the panel shows:
 - 30-day deposit/withdrawal totals
 - Product search comparison results (when shopping)
 - Navigation status (when Flicky opens a browser link)
+
+## Populate a connected demo sandbox
+
+From the repository root, `python3 scripts/seed_flicky_profile.py` previews a single clearly labeled synthetic profile. Add `--execute` to create it in Nessie. The script loads the local Nessie configuration, records created IDs in the Git-ignored `.nessie-demo-manifest.json`, and reuses those IDs on later runs. It does not retry ambiguous network failures. It creates a checking snapshot, two payroll deposits, three withdrawals, fourteen purchases across six merchant categories, and four upcoming bills. The service stores completed transaction history separately from the account balance; always verify the returned snapshot through `NessieAPIClient` rather than assuming posting changes the balance. Local customer/account configuration is populated after seeding; sign in to that customer in Flicky, or save that profile as the app's selected login during setup.

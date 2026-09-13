@@ -30,6 +30,7 @@ struct FinancialInsights {
     // purchases yet — the dashboard shows an honest empty state rather than
     // fabricating categories from thin air.
     var spendingByCategory: [CategorySpending] = []
+    var isSpendingDataAvailable: Bool = true
 
     // MARK: - Formatted helpers
 
@@ -151,11 +152,11 @@ struct FinancialInsights {
     /// Builds a rich text block for the Claude system prompt so the AI has full financial context.
     func toSystemPromptContext() -> String {
         var lines: [String] = []
-        lines.append("## Live Financial Data (as of \(formattedTime(asOf)))")
+        lines.append("## Nessie Sandbox Financial Data (as of \(formattedTime(asOf)))")
         if let nickname = accountNickname { lines.append("- Account: \(nickname)") }
         if let last4 = accountLast4 { lines.append("- Account ending: \(last4)") }
         lines.append("- Current balance: \(formattedBalance)")
-        lines.append("- Safe to spend (after reserve + upcoming bills): \(formattedSafeToSpend)")
+        lines.append("- Safe to spend (after $500 reserve + upcoming bills; estimate, excludes unposted charges): \(formattedSafeToSpend)")
 
         if !upcomingBills.isEmpty {
             lines.append("\n### Upcoming Bills (next 14 days)")
@@ -184,14 +185,8 @@ struct FinancialInsights {
             lines.append("- Rewards points: \(points)")
         }
 
-        lines.append("\n### Financial Health")
-        lines.append("  • Health score: \(financialHealthScore)/100 (grade \(financialHealthGrade))")
-        if let runwayDays = projectedRunwayDays {
-            lines.append("  • At the current spending rate, safe-to-spend funds run out in ~\(runwayDays) days")
-        }
-        if recurringMonthlyTotalCents > 0 {
-            lines.append("  • Recurring subscriptions/bills total: \(formatCents(recurringMonthlyTotalCents))/mo across \(recurringBills.count) items")
-        }
+        lines.append("- Deposit/withdrawal totals exclude purchases and transfers; they are not total income or net cash flow.")
+        if !isSpendingDataAvailable { lines.append("- Purchase data unavailable; do not infer zero spending.") }
         if !spendingByCategory.isEmpty {
             lines.append("\n### Spending by Category (last 30 days)")
             for category in spendingByCategory.prefix(5) {
@@ -329,4 +324,50 @@ struct FlickyLoginState {
     let customerId: String      // Nessie customer ID
     let displayEmail: String    // Shown in the UI as account identifier
     let maskedCardNumber: String // e.g. "•••• •••• •••• 4321"
+}
+
+// Identity and request evidence are populated only from Nessie responses.
+struct NessieCustomerProfile {
+    let id: String
+    let name: String
+    let accounts: [NessieAccountSummary]
+}
+
+struct NessieAccountSummary: Identifiable {
+    let id: String
+    let customerId: String
+    let nickname: String
+    let type: String
+    let balanceCents: Int?
+    let last4: String?
+}
+
+struct NessieRequestReceipt: Identifiable, Codable {
+    let id: UUID
+    let host: String
+    let path: String
+    let statusCode: Int?
+    let fetchedAt: Date
+    let durationMilliseconds: Int
+    let recordCount: Int?
+    let serverRequestId: String?
+    let responseSHA256: String?
+    let responsePreview: String
+
+    static func redactedJSON(_ value: Any) -> Any {
+        if let dictionary = value as? [String: Any] {
+            return dictionary.mapValues { $0 }.reduce(into: [String: Any]()) { result, entry in
+                let key = entry.key.lowercased()
+                if ["key", "api_key", "apikey", "authorization", "token"].contains(key) {
+                    result[entry.key] = "[redacted]"
+                } else if key == "account_number", let number = entry.value as? String {
+                    result[entry.key] = "•••• " + number.suffix(4)
+                } else {
+                    result[entry.key] = redactedJSON(entry.value)
+                }
+            }
+        }
+        if let array = value as? [Any] { return array.map(redactedJSON) }
+        return value
+    }
 }

@@ -96,7 +96,11 @@ final class CompanionResponseOverlayManager {
     }
 
     func updateStreamingText(_ accumulatedText: String) {
-        viewModel.streamingResponseText = accumulatedText
+        // Hide complete and partial control tags while SSE is still arriving.
+        let controlTags = #"\[(?:METRIC|SEARCH|NAVIGATE|POINT|INSIGHTS|SIMULATE)(?:[^\]]*\]|[^\]]*$)"#
+        viewModel.streamingResponseText = accumulatedText.replacingOccurrences(
+            of: controlTags, with: "", options: [.regularExpression, .caseInsensitive]
+        )
         resizePanelToFitContent()
     }
 
