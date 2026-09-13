@@ -12,96 +12,163 @@ struct CompanionPanelView: View {
     @State private var loginEmail: String = ""
     @State private var isLoggingIn = false
 
+    @State private var question = ""
+    @State private var isOptionsMenuPresented = false
+    private let secondaryText = Color(red: 0.65, green: 0.67, blue: 0.73)
+    private let mint = Color(red: 0.35, green: 0.94, blue: 0.64)
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             panelHeader
-
-            Divider()
-                .background(DS.Colors.borderSubtle)
-                .padding(.horizontal, 16)
+                .padding(.bottom, 22)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 20) {
                     if !companionManager.allPermissionsGranted {
                         permissionsSection
-                            .padding(.horizontal, 16)
-                            .padding(.top, 16)
                     } else if !companionManager.isLoggedIn {
                         loginSection
-                            .padding(.horizontal, 16)
-                            .padding(.top, 16)
                     } else {
-                        // This panel is intentionally account/financial info only —
-                        // shopping search results and comparisons live in the
-                        // separate right-edge SuggestionsDrawer instead (see
-                        // SuggestionsDrawerManager.swift), so this stays focused on
-                        // "what's in my account" rather than "what Flicky is shopping for."
                         financialProofSection
-                            .padding(.horizontal, 16)
-                            .padding(.top, 16)
-
-                        controlsSection
-                            .padding(.horizontal, 16)
-                            .padding(.top, 12)
+                        questionSection
+                        if companionManager.voiceState != .idle {
+                            stopFlickyButton
+                        }
                     }
-
-                    Spacer().frame(height: 12)
                 }
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxHeight: 520)
+            .scrollIndicators(.hidden)
+            .frame(maxHeight: 410)
 
-            Divider()
-                .background(DS.Colors.borderSubtle)
-                .padding(.horizontal, 16)
-
+            Rectangle().fill(Color.white.opacity(0.13)).frame(height: 1)
+                .padding(.top, 22)
+                .padding(.bottom, 16)
             footerSection
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
         }
-        .frame(width: 340)
+        .padding(18)
+        .frame(width: 480)
         .background(panelBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 19, style: .continuous)
+                .strokeBorder(LinearGradient(colors: [.white.opacity(0.35), .white.opacity(0.09), .white.opacity(0.22)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .preferredColorScheme(.dark)
     }
 
     // MARK: - Header
 
     private var panelHeader: some View {
-        HStack {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(statusDotColor)
-                    .frame(width: 8, height: 8)
-                    .shadow(color: statusDotColor.opacity(0.7), radius: 4)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Flicky")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(DS.Colors.textPrimary)
-                    Text("Financial Advisor")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(DS.Colors.textTertiary)
-                }
+        HStack(spacing: 18) {
+            Circle()
+                .fill(statusDotColor)
+                .frame(width: 14, height: 14)
+                .shadow(color: statusDotColor.opacity(0.45), radius: 9)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Flicky")
+                    .font(.system(size: 21, weight: .semibold))
+                    .foregroundStyle(.white)
+                Text("Financial Advisor")
+                    .font(.system(size: 14))
+                    .foregroundStyle(secondaryText)
             }
-
-            Spacer()
-
+            Spacer(minLength: 8)
             Text(statusText)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(DS.Colors.textTertiary)
-
-            Button(action: {
-                NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
-            }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .frame(width: 20, height: 20)
-                    .background(Circle().fill(Color.white.opacity(0.08)))
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(statusDotColor.opacity(0.85))
+            optionsButton
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 6)
+        .padding(.top, 2)
+    }
+
+    private var optionsButton: some View {
+        ZStack(alignment: .topTrailing) {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(secondaryText)
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(.white.opacity(isOptionsMenuPresented ? 0.08 : 0.035)))
+                .overlay(Circle().strokeBorder(.white.opacity(isOptionsMenuPresented ? 0.26 : 0.16), lineWidth: 1))
+                .contentShape(Circle())
+                .onTapGesture {
+                    withAnimation(.easeOut(duration: 0.16)) {
+                        isOptionsMenuPresented.toggle()
+                    }
+                }
+                .accessibilityHidden(true)
+            .pointerCursor()
+
+            if isOptionsMenuPresented {
+                VStack(alignment: .leading, spacing: 4) {
+                    optionsMenuButton("Refresh account", icon: "arrow.clockwise", isDisabled: !companionManager.isLoggedIn) {
+                        isOptionsMenuPresented = false
+                        Task { await companionManager.refreshFinancialData() }
+                    }
+                    optionsMenuButton("View full insights", icon: "chart.bar.xaxis", isDisabled: companionManager.financialInsights == nil) {
+                        isOptionsMenuPresented = false
+                        companionManager.insightsDashboardManager.toggle()
+                    }
+                    optionsMenuButton("Dismiss panel", icon: "xmark") {
+                        isOptionsMenuPresented = false
+                        NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
+                    }
+                    Rectangle()
+                        .fill(.white.opacity(0.12))
+                        .frame(height: 1)
+                        .padding(.vertical, 4)
+                    optionsMenuButton("Quit Flicky", icon: "power") {
+                        isOptionsMenuPresented = false
+                        NSApp.terminate(nil)
+                    }
+                }
+                .padding(8)
+                .frame(width: 220)
+                .background {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color(red: 0.055, green: 0.06, blue: 0.07).opacity(0.98))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .strokeBorder(.white.opacity(0.2), lineWidth: 1)
+                        }
+                        .shadow(color: .black.opacity(0.45), radius: 18, y: 10)
+                }
+                .offset(x: 0, y: 44)
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .topTrailing)))
+                .zIndex(20)
+            }
+        }
+        .frame(width: 34, height: 34)
+    }
+
+    private func optionsMenuButton(
+        _ title: String,
+        icon: String,
+        isDisabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 11) {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .frame(width: 18)
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(isDisabled ? secondaryText.opacity(0.4) : .white.opacity(0.9))
+            .padding(.horizontal, 10)
+            .frame(height: 34)
+            .background {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(.white.opacity(0.001))
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .pointerCursor(isEnabled: !isDisabled)
     }
 
     // MARK: - Login Section
@@ -216,204 +283,206 @@ struct CompanionPanelView: View {
         }
     }
 
-    // MARK: - Financial Proof Section
+    // MARK: - Account and balance
 
     private var financialProofSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Account badge
+        VStack(spacing: 22) {
             if let state = companionManager.loginState {
-                HStack(spacing: 8) {
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(Color(red: 0.8, green: 0.1, blue: 0.1))
-                        .frame(width: 24, height: 24)
-                        .overlay(
-                            Text("C1")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(.white)
-                        )
+                HStack(spacing: 12) {
+                    HStack(spacing: 12) {
+                        CapitalOneMark().fill(Color(red: 0.91, green: 0.16, blue: 0.19))
+                            .frame(width: 32, height: 24)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Capital One").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                            Text("Connected").font(.system(size: 12)).foregroundStyle(secondaryText)
+                        }
+                        Spacer(minLength: 0)
+                        connectionCheck
+                    }
+                    .frame(width: 168)
+                    .padding(12)
+                    .background(tileBackground())
+                    .help(state.maskedCardNumber)
 
-                    VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "envelope.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(secondaryText)
                         Text(state.displayEmail)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(DS.Colors.textSecondary)
-                        Text(state.maskedCardNumber)
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(DS.Colors.textTertiary)
+                            .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .truncationMode(.middle)
+                            .foregroundStyle(.white)
+                        Spacer(minLength: 0)
                     }
-
-                    Spacer()
-
-                    Button(action: {
-                        Task { await companionManager.refreshFinancialData() }
-                    }) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 11))
-                            .foregroundColor(DS.Colors.textTertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 34)
+                    .padding(12)
+                    .background(tileBackground())
+                    .help(state.displayEmail)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.white.opacity(0.05))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-                )
             }
 
-            if companionManager.isLoadingFinancials {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .scaleEffect(0.7)
-                        .progressViewStyle(CircularProgressViewStyle(tint: DS.Colors.textTertiary))
-                    Text("Loading financial data…")
-                        .font(.system(size: 11))
-                        .foregroundColor(DS.Colors.textTertiary)
+            if let insights = companionManager.financialInsights {
+                VStack(spacing: 3) {
+                    Text("Balance")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(secondaryText)
+                    Text(insights.formattedBalance)
+                        .font(.system(size: 44, weight: .semibold))
+                        .tracking(-1.2)
+                        .monospacedDigit()
+                        .minimumScaleFactor(0.6)
+                        .lineLimit(1)
+                        .foregroundStyle(.white)
+                    HStack(spacing: 10) {
+                        Image(systemName: "checkmark.shield")
+                            .font(.system(size: 19))
+                            .foregroundStyle(safeToSpendColor(cents: insights.safeToSpendCents))
+                        Text("Safe to Spend")
+                            .font(.system(size: 13))
+                            .foregroundStyle(secondaryText)
+                        Text(insights.formattedSafeToSpend)
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(safeToSpendColor(cents: insights.safeToSpendCents))
+                    }
+                    .padding(.top, 9)
                 }
-                .padding(.vertical, 4)
-            } else if let insights = companionManager.financialInsights {
-                // Balance + Safe to Spend
-                HStack(spacing: 8) {
-                    financialCard(
-                        label: "Balance",
-                        value: insights.formattedBalance,
-                        icon: "banknote",
-                        color: DS.Colors.textPrimary
-                    )
-                    financialCard(
-                        label: "Safe to Spend",
-                        value: insights.formattedSafeToSpend,
-                        icon: "checkmark.shield",
-                        color: safeToSpendColor(cents: insights.safeToSpendCents)
-                    )
-                }
+                .padding(.top, 2)
+                .frame(maxWidth: .infinity)
 
-                // Upcoming bills
-                if !insights.upcomingBills.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("UPCOMING BILLS")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundColor(DS.Colors.textTertiary)
-
-                        ForEach(insights.upcomingBills.prefix(3)) { bill in
-                            HStack {
-                                HStack(spacing: 6) {
-                                    Image(systemName: bill.recurring ? "repeat" : "calendar")
-                                        .font(.system(size: 10))
-                                        .foregroundColor(DS.Colors.textTertiary)
-                                        .frame(width: 12)
+                let bills = insights.recurringBills.isEmpty ? insights.upcomingBills : insights.recurringBills
+                if !bills.isEmpty {
+                    HStack(spacing: 10) {
+                        ForEach(bills.prefix(3)) { bill in
+                            Button {
+                                companionManager.insightsDashboardManager.toggle()
+                            } label: {
+                                HStack(spacing: 8) {
+                                    merchantIcon(bill.label)
                                     Text(bill.label)
-                                        .font(.system(size: 11, weight: .medium))
-                                        .foregroundColor(DS.Colors.textSecondary)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .lineLimit(1)
                                 }
-                                Spacer()
-                                VStack(alignment: .trailing, spacing: 1) {
-                                    Text(bill.formattedAmount)
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .foregroundColor(DS.Colors.textPrimary)
-                                    Text(bill.date)
-                                        .font(.system(size: 9))
-                                        .foregroundColor(DS.Colors.textTertiary)
-                                }
+                                .padding(.horizontal, 13)
+                                .frame(height: 38)
                             }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(Color.white.opacity(0.04))
-                            )
+                            .buttonStyle(FlickyGlassButtonStyle())
+                            .pointerCursor()
+                            .help("\(bill.label): \(bill.formattedAmount), due \(bill.date)")
                         }
+                        if bills.count > 3 {
+                            Button { companionManager.insightsDashboardManager.toggle() } label: {
+                                Text("+\(bills.count - 3)")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .frame(width: 46, height: 38)
+                            }
+                                .buttonStyle(FlickyGlassButtonStyle())
+                                .pointerCursor()
+                                .accessibilityLabel("View all \(bills.count) bills")
+                        }
+                        Spacer(minLength: 0)
                     }
                 }
-
-                // Recent activity
-                if insights.recentDepositsCents > 0 || insights.recentWithdrawalsCents > 0 {
-                    HStack(spacing: 8) {
-                        activityPill(
-                            label: "30d In",
-                            value: insights.formatCents(insights.recentDepositsCents),
-                            color: DS.Colors.success
-                        )
-                        activityPill(
-                            label: "30d Out",
-                            value: insights.formatCents(insights.recentWithdrawalsCents),
-                            color: Color(red: 1, green: 0.45, blue: 0.35)
-                        )
-                        if let points = insights.rewardsPoints, points > 0 {
-                            activityPill(label: "Points", value: "\(points)", color: DS.Colors.blue400)
-                        }
-                    }
-                }
-            } else if let error = companionManager.financialLoadError {
-                Text(error)
-                    .font(.system(size: 11))
-                    .foregroundColor(DS.Colors.warning)
-                    .fixedSize(horizontal: false, vertical: true)
             }
-
-            if companionManager.financialInsights != nil {
-                viewFullInsightsButton
+            if companionManager.isLoadingFinancials {
+                ProgressView("Refreshing account…").font(.system(size: 12))
+            }
+            if let error = companionManager.financialLoadError {
+                Text(error).font(.system(size: 12)).foregroundStyle(DS.Colors.warning)
             }
         }
     }
 
-    // Opens the toggleable insights dashboard (see
-    // FinancialInsightsDashboardManager) so the user can dig into spending
-    // trends, the full bill breakdown, and rewards value beyond what fits in
-    // this compact menu bar panel — accessible any time, not just when Flicky
-    // proactively opens it via [INSIGHTS].
-    private var viewFullInsightsButton: some View {
-        Button(action: {
-            companionManager.insightsDashboardManager.toggle()
-        }) {
-            HStack(spacing: 6) {
-                Image(systemName: "chart.bar.xaxis")
-                    .font(.system(size: 11))
-                Text("View Full Insights")
-                    .font(.system(size: 11, weight: .semibold))
-                Spacer()
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: 9))
-            }
-            .foregroundColor(DS.Colors.blue400)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(DS.Colors.blue400.opacity(0.08))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(DS.Colors.blue400.opacity(0.2), lineWidth: 0.5)
-            )
+    private var connectionCheck: some View {
+        Image(systemName: "checkmark.circle.fill")
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(Color.black.opacity(0.8), mint)
+            .font(.system(size: 17))
+            .accessibilityLabel("Account connected")
+    }
+
+    @ViewBuilder
+    private func merchantIcon(_ name: String) -> some View {
+        switch name.lowercased() {
+        case "netflix":
+            Text("N").font(.system(size: 23, weight: .black)).foregroundStyle(Color(red: 0.94, green: 0.12, blue: 0.17))
+        case "spotify":
+            Image(systemName: "waveform.circle.fill").font(.system(size: 22)).foregroundStyle(.green)
+        case "airbnb":
+            Image(systemName: "a.circle").font(.system(size: 22)).foregroundStyle(Color(red: 1, green: 0.42, blue: 0.46))
+        default:
+            Image(systemName: name.lowercased().contains("rent") ? "house" : "repeat")
+                .font(.system(size: 17)).foregroundStyle(secondaryText)
         }
-        .buttonStyle(.plain)
+    }
+
+    private var questionSection: some View {
+        VStack(spacing: 18) {
+            HStack(spacing: 14) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 22))
+                    .foregroundStyle(Color(red: 0.72, green: 0.77, blue: 0.91))
+                TextField("Ask Flicky anything…", text: $question)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 15))
+                    .foregroundStyle(.white)
+                    .onSubmit(submitQuestion)
+                    .accessibilityLabel("Ask Flicky anything")
+                Button(action: submitQuestion) {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(.white.opacity(question.isEmpty ? 0.6 : 1))
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(Color(red: 0.43, green: 0.47, blue: 0.57).opacity(question.isEmpty ? 0.65 : 1)))
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .disabled(question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityLabel("Send question")
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 60)
+            .background(tileBackground(emphasized: true))
+
+            HStack(spacing: 12) {
+                suggestionButton("Analyze my spending", icon: "list.bullet.rectangle")
+                suggestionButton("Find ways to save", icon: "lightbulb")
+            }
+        }
+    }
+
+    private func suggestionButton(_ title: String, icon: String) -> some View {
+        Button { companionManager.submitPanelQuestion(title) } label: {
+            HStack(spacing: 8) {
+                Image(systemName: icon).font(.system(size: 19))
+                Text(title).font(.system(size: 12)).lineLimit(1).minimumScaleFactor(0.85)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.system(size: 10, weight: .medium))
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity)
+            .frame(height: 46)
+        }
+        .buttonStyle(FlickyGlassButtonStyle())
         .pointerCursor()
     }
 
-    // MARK: - Controls Section
+    private func submitQuestion() {
+        let trimmedQuestion = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuestion.isEmpty else { return }
+        companionManager.submitPanelQuestion(trimmedQuestion)
+        question = ""
+    }
 
-    private var controlsSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Image(systemName: "command")
-                    .font(.system(size: 10))
-                    .foregroundColor(DS.Colors.textTertiary)
-                Text("Hold  ctrl + option  to talk to Flicky")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
+    private func tileBackground(emphasized: Bool = false) -> some View {
+        RoundedRectangle(cornerRadius: 17, style: .continuous)
+            .fill(.white.opacity(emphasized ? 0.055 : 0.025))
+            .overlay {
+                RoundedRectangle(cornerRadius: 17, style: .continuous)
+                    .strokeBorder(.white.opacity(emphasized ? 0.24 : 0.09), lineWidth: 1)
             }
-
-            if companionManager.voiceState != .idle {
-                stopFlickyButton
-            }
-
-            modelPickerRow
-        }
     }
 
     // Redundant with the stop button on the response overlay itself — this
@@ -447,44 +516,28 @@ struct CompanionPanelView: View {
     }
 
     private var modelPickerRow: some View {
-        HStack {
-            Text("Model")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(DS.Colors.textSecondary)
-
-            Spacer()
-
-            HStack(spacing: 0) {
-                modelOptionButton(label: "Sonnet", modelID: "claude-sonnet-4-6")
-                modelOptionButton(label: "Opus", modelID: "claude-opus-4-6")
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-            )
+        HStack(spacing: 0) {
+            modelOptionButton(label: "Sonnet", modelID: "claude-sonnet-4-6")
+            modelOptionButton(label: "Opus", modelID: "claude-opus-4-6")
         }
-        .padding(.vertical, 2)
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 12).fill(.white.opacity(0.045)))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.06)))
     }
 
     private func modelOptionButton(label: String, modelID: String) -> some View {
         let isSelected = companionManager.selectedModel == modelID
         return Button(action: { companionManager.setSelectedModel(modelID) }) {
             Text(label)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textTertiary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(isSelected ? Color.white.opacity(0.1) : Color.clear)
-                )
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(isSelected ? .white : secondaryText)
+                .padding(.horizontal, 13)
+                .padding(.vertical, 7)
+                .background(RoundedRectangle(cornerRadius: 10).fill(.white.opacity(isSelected ? 0.08 : 0)))
         }
         .buttonStyle(.plain)
         .pointerCursor()
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
     // MARK: - Permissions Section
@@ -576,80 +629,23 @@ struct CompanionPanelView: View {
     // MARK: - Footer
 
     private var footerSection: some View {
-        HStack {
-            Button(action: { NSApp.terminate(nil) }) {
-                HStack(spacing: 5) {
-                    Image(systemName: "power").font(.system(size: 10, weight: .medium))
-                    Text("Quit Flicky").font(.system(size: 11, weight: .medium))
-                }
-                .foregroundColor(DS.Colors.textTertiary)
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-
-            Spacer()
-
+        HStack(spacing: 14) {
+            Image(systemName: "mic").font(.system(size: 23)).foregroundStyle(secondaryText)
+            Text("Hold ⌃ ⌥ to talk")
+                .font(.system(size: 12))
+                .foregroundStyle(secondaryText)
+                .help("Hold Control and Option to talk to Flicky")
+            Spacer(minLength: 0)
+            modelPickerRow
             if companionManager.isLoggedIn {
-                Button(action: { companionManager.logout() }) {
-                    Text("Sign out")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(DS.Colors.textTertiary)
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
+                Rectangle().fill(.white.opacity(0.13)).frame(width: 1, height: 27)
+                Button("Sign out") { companionManager.logout() }
+                    .font(.system(size: 12))
+                    .foregroundStyle(secondaryText)
+                    .buttonStyle(.plain)
+                    .pointerCursor()
             }
         }
-    }
-
-    // MARK: - Helper Views
-
-    private func financialCard(label: String, value: String, icon: String, color: Color) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(.system(size: 11))
-                .foregroundColor(color.opacity(0.8))
-                .frame(width: 16)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(DS.Colors.textTertiary)
-                Text(value)
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(color)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(color.opacity(0.07))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(color.opacity(0.15), lineWidth: 0.5)
-        )
-    }
-
-    private func activityPill(label: String, value: String, color: Color) -> some View {
-        VStack(spacing: 2) {
-            Text(value)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(color)
-            Text(label)
-                .font(.system(size: 9))
-                .foregroundColor(DS.Colors.textTertiary)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(color.opacity(0.07))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .stroke(color.opacity(0.2), lineWidth: 0.5)
-        )
     }
 
     private func safeToSpendColor(cents: Int) -> Color {
@@ -661,17 +657,20 @@ struct CompanionPanelView: View {
     // MARK: - Status Helpers
 
     private var panelBackground: some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(DS.Colors.background)
-            .shadow(color: Color.black.opacity(0.5), radius: 20, x: 0, y: 10)
-            .shadow(color: Color.black.opacity(0.3), radius: 4, x: 0, y: 2)
+        ZStack {
+            Rectangle().fill(.ultraThinMaterial)
+            LinearGradient(
+                colors: [Color(red: 0.14, green: 0.15, blue: 0.19).opacity(0.88), Color(red: 0.065, green: 0.07, blue: 0.085).opacity(0.94)],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
+        }
     }
 
     private var statusDotColor: Color {
         if !companionManager.isLoggedIn { return DS.Colors.warning }
         if !companionManager.allPermissionsGranted { return DS.Colors.warning }
         switch companionManager.voiceState {
-        case .idle:       return DS.Colors.success
+        case .idle:       return mint
         case .listening:  return DS.Colors.blue400
         case .processing: return DS.Colors.blue400
         case .responding: return DS.Colors.blue400
@@ -687,5 +686,42 @@ struct CompanionPanelView: View {
         case .processing: return "Thinking"
         case .responding: return "Responding"
         }
+    }
+}
+
+private struct FlickyGlassButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        GlassButtonContent(configuration: configuration)
+    }
+
+    private struct GlassButtonContent: View {
+        let configuration: ButtonStyle.Configuration
+        @State private var isHovered = false
+
+        var body: some View {
+            configuration.label
+                .foregroundStyle(Color(red: 0.75, green: 0.78, blue: 0.84))
+                .background {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(.white.opacity(configuration.isPressed ? 0.12 : isHovered ? 0.075 : 0.025))
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(.white.opacity(isHovered ? 0.2 : 0.085), lineWidth: 1)
+                }
+                .onHover { isHovered = $0 }
+        }
+    }
+}
+
+private struct CapitalOneMark: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.height * 0.3))
+        path.addCurve(to: CGPoint(x: rect.width * 0.87, y: rect.height * 0.16), control1: CGPoint(x: rect.width * 0.8, y: -rect.height * 0.05), control2: CGPoint(x: rect.width * 1.15, y: rect.height * 0.04))
+        path.addCurve(to: CGPoint(x: rect.width * 0.25, y: rect.height), control1: CGPoint(x: rect.width * 1.12, y: rect.height * 0.38), control2: CGPoint(x: rect.width * 0.62, y: rect.height * 0.8))
+        path.addCurve(to: CGPoint(x: rect.minX, y: rect.height * 0.3), control1: CGPoint(x: rect.width * 0.83, y: rect.height * 0.45), control2: CGPoint(x: rect.width * 0.44, y: rect.height * 0.23))
+        path.closeSubpath()
+        return path
     }
 }

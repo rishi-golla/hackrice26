@@ -11,3 +11,5 @@ macos/clicky-worker/.dev.vars
 **/xcuserdata/
 .hover-latency-bench-*
 eng.traineddata
+.nessie-demo-manifest.json
+__pycache__/

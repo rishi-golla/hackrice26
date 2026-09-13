@@ -32,8 +32,8 @@ final class MenuBarPanelManager: NSObject {
     private var dismissPanelObserver: NSObjectProtocol?
 
     private let companionManager: CompanionManager
-    private let panelWidth: CGFloat = 320
-    private let panelHeight: CGFloat = 380
+    private let panelWidth: CGFloat = 480
+    private let panelHeight: CGFloat = 556
 
     init(companionManager: CompanionManager) {
         self.companionManager = companionManager
@@ -118,6 +118,7 @@ final class MenuBarPanelManager: NSObject {
         hostingView.frame = NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight)
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
+        hostingView.focusRingType = .none
 
         let menuBarPanel = KeyablePanel(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
@@ -130,7 +131,7 @@ final class MenuBarPanelManager: NSObject {
         menuBarPanel.level = .floating
         menuBarPanel.isOpaque = false
         menuBarPanel.backgroundColor = .clear
-        menuBarPanel.hasShadow = false
+        menuBarPanel.hasShadow = true
         menuBarPanel.hidesOnDeactivate = false
         menuBarPanel.isExcludedFromWindowsMenu = true
         menuBarPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -155,7 +156,8 @@ final class MenuBarPanelManager: NSObject {
         let actualPanelHeight = fittingSize.height
 
         // Horizontally center the panel beneath the status item icon
-        let panelOriginX = statusItemFrame.midX - (panelWidth / 2)
+        let visibleFrame = buttonWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? statusItemFrame
+        let panelOriginX = min(max(statusItemFrame.midX - (panelWidth / 2), visibleFrame.minX + 8), visibleFrame.maxX - panelWidth - 8)
         let panelOriginY = statusItemFrame.minY - actualPanelHeight - gapBelowMenuBar
 
         panel.setFrame(

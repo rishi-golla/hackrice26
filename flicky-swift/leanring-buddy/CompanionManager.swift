@@ -41,6 +41,13 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var financialInsights: FinancialInsights?
     @Published private(set) var financialLoadError: String?
     @Published private(set) var isLoadingFinancials = false
+    @Published private(set) var simulationCohort: SimulationCohort? = SimulationCohort.load()
+    @Published private(set) var proposedSimulationPurchaseCents: Int?
+    @Published var shouldOpenSimulation = false
+
+    func consumeSimulationRequest() {
+        shouldOpenSimulation = false
+    }
 
     // MARK: - Product Search & Navigation State
 
@@ -494,6 +501,14 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Voice Query Pipeline
 
+    func submitPanelQuestion(_ question: String) {
+        guard isLoggedIn, allPermissionsGranted,
+              !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        stopCurrentResponse()
+        responseOverlayManager.hideOverlay()
+        handleVoiceQuerySubmitted(transcript: question)
+    }
+
     private func handleVoiceQuerySubmitted(transcript: String) {
         guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         lastTranscript = transcript
@@ -668,6 +683,27 @@ final class CompanionManager: ObservableObject {
             if regex.firstMatch(in: text, range: nsRange) != nil {
                 text = regex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "")
                 insightsDashboardManager.show()
+            }
+        }
+
+        // [SIMULATE: $amount] — opens the scenario tab with a proposed
+        // one-time purchase. The dashboard still requires the user to review
+        // and confirm/edit the amount before doing any calculation.
+        let simulationPattern = #"\[SIMULATE:\s*\$?([0-9][0-9,]*(?:\.\d{1,2})?)\]"#
+        if let regex = try? NSRegularExpression(pattern: simulationPattern, options: .caseInsensitive) {
+            let nsRange = NSRange(text.startIndex..., in: text)
+            if let match = regex.firstMatch(in: text, range: nsRange) {
+                let amount = (text as NSString).substring(with: match.range(at: 1))
+                if let cents = NessieSimulationCalculator.parseCents(amount) {
+                    proposedSimulationPurchaseCents = cents
+                    shouldOpenSimulation = true
+                    insightsDashboardManager.show()
+                }
+                text = regex.stringByReplacingMatches(
+                    in: text,
+                    range: NSRange(text.startIndex..., in: text),
+                    withTemplate: ""
+                )
             }
         }
 
@@ -1029,6 +1065,7 @@ You are Flicky, a real-time financial decision-making agent embedded as a cursor
 [NAVIGATE: https://example.com|reason] — opens URL in user's browser (announce verbally first)
 [POINT: x,y:label] — points cursor at screen element (x,y are 0-100 percentages)
 [INSIGHTS] — opens the full financial insights dashboard (spending trends, bill breakdown, rewards value). Use whenever a quick spoken number wouldn't do the picture justice — e.g. "how am I doing this month," "break down my spending."
+[SIMULATE: $amount] — when the user asks how an on-screen purchase could affect their savings, include the candidate one-time price and open the scenario tab. The user must confirm or edit the amount; never treat a guessed price as approved.
 
 ## Shopping: Conversational, One at a Time
 When the user is comparing or buying something, don't dump a wall of links — walk them through it like you're standing next to them in a store:
@@ -1051,7 +1088,7 @@ When the user is comparing or buying something, don't dump a wall of links — w
 
     private func extractSpokenText(from text: String) -> String {
         var spoken = text
-        for pattern in [#"\[SEARCH:[^\]]*\]"#, #"\[NAVIGATE:[^\]]*\]"#, #"\[POINT:[^\]]*\]"#] {
+        for pattern in [#"\[SEARCH:[^\]]*\]"#, #"\[NAVIGATE:[^\]]*\]"#, #"\[POINT:[^\]]*\]"#, #"\[SIMULATE:[^\]]*\]"#] {
             if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
                 spoken = regex.stringByReplacingMatches(
                     in: spoken, range: NSRange(spoken.startIndex..., in: spoken), withTemplate: "")

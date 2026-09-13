@@ -3,7 +3,8 @@
 // A toggleable, non-fullscreen NSPanel that gives the user a rich, always-
 // available "second screen" for their financial data — pulling everything
 // already sitting in `CompanionManager.financialInsights` (from the Nessie
-// API) and presenting it as three focused tabs (Overview, Spending, Bills)
+// API) and presenting it as four focused tabs (Overview, Spending, Bills,
+// Scenarios)
 // instead of one long undifferentiated scroll. Beyond the raw numbers Nessie
 // returns, this dashboard computes and visualizes things no other surface in
 // the app shows: a composite financial health score, a forward-looking
@@ -33,7 +34,7 @@ final class FinancialInsightsDashboardManager: NSObject {
     private var dashboardPanel: NSPanel?
     private var dismissObserver: NSObjectProtocol?
 
-    private let dashboardSize = NSSize(width: 460, height: 700)
+    private let dashboardSize = NSSize(width: 520, height: 760)
 
     init(companionManager: CompanionManager) {
         self.companionManager = companionManager
@@ -68,7 +69,7 @@ final class FinancialInsightsDashboardManager: NSObject {
     /// Shows the dashboard, centered on the main screen but sized well short
     /// of full-screen so the user's other work stays visible around it.
     func show() {
-        guard let targetScreen = NSScreen.main else { return }
+        guard let targetScreen = NSScreen.main ?? NSScreen.screens.first else { return }
         createPanelIfNeeded(onScreen: targetScreen)
         guard let panel = dashboardPanel else { return }
 
@@ -122,6 +123,7 @@ final class FinancialInsightsDashboardManager: NSObject {
             rootView: FinancialInsightsDashboardView(companionManager: companionManager)
         )
         hostingView.frame = initialFrame
+        hostingView.focusRingType = .none
         panel.contentView = hostingView
 
         dashboardPanel = panel
@@ -130,7 +132,7 @@ final class FinancialInsightsDashboardManager: NSObject {
 
 // MARK: - Dashboard Tabs
 
-/// The three focused sections of the dashboard. Splitting into tabs (instead
+/// The focused sections of the dashboard. Splitting into tabs (instead
 /// of one long scroll, which is what this dashboard used to be) keeps each
 /// screen legible even as the amount of financial content Flicky surfaces
 /// keeps growing — health score and runway in Overview, the category
@@ -139,6 +141,7 @@ private enum DashboardTab: String, CaseIterable, Identifiable {
     case overview
     case spending
     case bills
+    case scenarios
 
     var id: String { rawValue }
 
@@ -147,6 +150,7 @@ private enum DashboardTab: String, CaseIterable, Identifiable {
         case .overview: return "Overview"
         case .spending: return "Spending"
         case .bills: return "Bills"
+        case .scenarios: return "Scenarios"
         }
     }
 
@@ -155,6 +159,7 @@ private enum DashboardTab: String, CaseIterable, Identifiable {
         case .overview: return "square.grid.2x2"
         case .spending: return "chart.pie"
         case .bills: return "calendar"
+        case .scenarios: return "chart.bar.doc.horizontal"
         }
     }
 }
@@ -184,12 +189,14 @@ private struct FinancialInsightsDashboardView: View {
         VStack(alignment: .leading, spacing: 0) {
             header
 
-            Divider().background(DS.Colors.borderSubtle)
+            Rectangle()
+                .fill(.white.opacity(0.12))
+                .frame(height: 1)
 
             if let insights = companionManager.financialInsights {
                 tabBar
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 18) {
                         switch selectedTab {
                         case .overview:
                             heroBalanceSection(insights: insights)
@@ -204,49 +211,104 @@ private struct FinancialInsightsDashboardView: View {
                             upcomingBillsSection(insights: insights)
                             subscriptionsTrackerSection(insights: insights)
                             rewardsSection(insights: insights)
+                        case .scenarios:
+                            NessieSimulationView(companionManager: companionManager)
                         }
                     }
-                    .padding(16)
+                    .padding(18)
+                }
+            } else if companionManager.simulationCohort != nil {
+                tabBar
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        if selectedTab == .scenarios {
+                            NessieSimulationView(companionManager: companionManager)
+                        } else {
+                            Text("Connect a Nessie account to view this section. The Scenarios tab works with the local simulated peer group.")
+                                .font(.system(size: 11))
+                                .foregroundColor(DS.Colors.textTertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(18)
                 }
             } else {
                 emptyState
             }
         }
-        .frame(width: 460, height: 700)
-        .background(DS.Colors.background)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-        )
+        .frame(width: 520, height: 760)
+        .background {
+            ZStack {
+                Rectangle().fill(.ultraThinMaterial)
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.14, green: 0.15, blue: 0.19).opacity(0.9),
+                        Color(red: 0.06, green: 0.07, blue: 0.08).opacity(0.96)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [.white.opacity(0.34), .white.opacity(0.1), .white.opacity(0.24)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+        }
+        .preferredColorScheme(.dark)
+        .onAppear {
+            openRequestedSimulationIfNeeded()
+        }
+        .onChange(of: companionManager.shouldOpenSimulation) { _ in
+            openRequestedSimulationIfNeeded()
+        }
+    }
+
+    private func openRequestedSimulationIfNeeded() {
+        guard companionManager.shouldOpenSimulation else { return }
+        selectedTab = .scenarios
+        companionManager.consumeSimulationRequest()
     }
 
     // MARK: Header
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 14) {
+            Circle()
+                .fill(Color(red: 0.35, green: 0.94, blue: 0.64))
+                .frame(width: 11, height: 11)
+                .shadow(color: Color(red: 0.35, green: 0.94, blue: 0.64).opacity(0.45), radius: 7)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Insights")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundColor(DS.Colors.textPrimary)
+                    .font(.system(size: 21, weight: .semibold))
+                    .foregroundStyle(.white)
                 Text("Your full financial picture, live from Capital One")
-                    .font(.system(size: 10))
-                    .foregroundColor(DS.Colors.textTertiary)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color(red: 0.65, green: 0.67, blue: 0.73))
             }
             Spacer()
             Button(action: {
                 NotificationCenter.default.post(name: .flickyDismissInsightsDashboard, object: nil)
             }) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .frame(width: 20, height: 20)
-                    .background(Circle().fill(Color.white.opacity(0.08)))
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color(red: 0.65, green: 0.67, blue: 0.73))
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(.white.opacity(0.05)))
+                    .overlay(Circle().strokeBorder(.white.opacity(0.1), lineWidth: 1))
             }
             .buttonStyle(.plain)
             .pointerCursor()
         }
-        .padding(14)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
     }
 
     // MARK: Tab Bar
@@ -261,16 +323,16 @@ private struct FinancialInsightsDashboardView: View {
                 }) {
                     HStack(spacing: 5) {
                         Image(systemName: tab.iconSystemName)
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: 12, weight: .medium))
                         Text(tab.title)
-                            .font(.system(size: 11.5, weight: .semibold))
+                            .font(.system(size: 12, weight: .medium))
                     }
-                    .foregroundColor(selectedTab == tab ? DS.Colors.textPrimary : DS.Colors.textTertiary)
+                    .foregroundStyle(selectedTab == tab ? .white : Color(red: 0.65, green: 0.67, blue: 0.68))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 7)
                     .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(selectedTab == tab ? Color.white.opacity(0.08) : Color.clear)
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(selectedTab == tab ? Color.white.opacity(0.1) : Color.clear)
                     )
                 }
                 .buttonStyle(.plain)
@@ -279,11 +341,16 @@ private struct FinancialInsightsDashboardView: View {
         }
         .padding(4)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.white.opacity(0.03))
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                .fill(.white.opacity(0.04))
         )
-        .padding(.horizontal, 14)
-        .padding(.bottom, 10)
+        .overlay {
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 14)
+        .padding(.bottom, 4)
     }
 
     private var emptyState: some View {
@@ -306,20 +373,27 @@ private struct FinancialInsightsDashboardView: View {
     /// pulling this into one modifier keeps that consistent and makes it
     /// trivial to add new sections without re-deriving the styling each time.
     private func cardBackground() -> some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(Color.white.opacity(0.04))
+        RoundedRectangle(cornerRadius: 17, style: .continuous)
+            .fill(.white.opacity(0.032))
     }
 
     private func cardBorder() -> some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
+        RoundedRectangle(cornerRadius: 17, style: .continuous)
+            .strokeBorder(
+                LinearGradient(
+                    colors: [.white.opacity(0.18), .white.opacity(0.07), .white.opacity(0.14)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: 1
+            )
     }
 
     private func sectionLabel(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 9, weight: .semibold))
-            .foregroundColor(DS.Colors.textTertiary)
-            .tracking(0.5)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(Color(red: 0.55, green: 0.59, blue: 0.58))
+            .tracking(1.1)
     }
 
     // MARK: Hero Balance
@@ -339,8 +413,12 @@ private struct FinancialInsightsDashboardView: View {
                 }
             }
             Text(insights.formattedBalance)
-                .font(.system(size: 34, weight: .bold, design: .rounded))
-                .foregroundColor(DS.Colors.textPrimary)
+                .font(.system(size: 44, weight: .semibold, design: .rounded))
+                .tracking(-1.1)
+                .monospacedDigit()
+                .minimumScaleFactor(0.65)
+                .lineLimit(1)
+                .foregroundStyle(.white)
             if let last4 = insights.accountLast4 {
                 Text("Account ending \(last4)")
                     .font(.system(size: 10))
@@ -466,8 +544,8 @@ private struct FinancialInsightsDashboardView: View {
                     Spacer()
                 }
                 .padding(14)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(DS.Colors.warning.opacity(0.08)))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(DS.Colors.warning.opacity(0.25), lineWidth: 0.5))
+                .background(RoundedRectangle(cornerRadius: 17, style: .continuous).fill(DS.Colors.warning.opacity(0.08)))
+                .overlay(RoundedRectangle(cornerRadius: 17, style: .continuous).stroke(DS.Colors.warning.opacity(0.25), lineWidth: 1))
             } else if insights.netCashFlowCents > 0 {
                 HStack(spacing: 12) {
                     Image(systemName: "arrow.up.right.circle.fill")
@@ -485,8 +563,8 @@ private struct FinancialInsightsDashboardView: View {
                     Spacer()
                 }
                 .padding(14)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(DS.Colors.success.opacity(0.08)))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(DS.Colors.success.opacity(0.25), lineWidth: 0.5))
+                .background(RoundedRectangle(cornerRadius: 17, style: .continuous).fill(DS.Colors.success.opacity(0.08)))
+                .overlay(RoundedRectangle(cornerRadius: 17, style: .continuous).stroke(DS.Colors.success.opacity(0.25), lineWidth: 1))
             }
         }
     }
