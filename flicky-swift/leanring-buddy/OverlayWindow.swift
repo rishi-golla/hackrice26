@@ -52,42 +52,6 @@ class OverlayWindow: NSWindow {
     }
 }
 
-// The pixel-art piggy bank buddy that follows the user's cursor — replaces
-// the earlier wobbling blue "gooey blob" cursor (which itself replaced an
-// even earlier blue triangle). Reuses the same `MenuBarPiggyIcon` artwork as
-// the menu bar icon (transparent background) so the character is consistent
-// everywhere it appears in the app. Since the artwork is a static pixel-art
-// image rather than a vector shape, "aliveness" comes entirely from motion:
-// a gentle idle "breathing" scale pulse, a tiny continuous in-place hop, a
-// squash-and-stretch deformation driven by how fast the buddy is currently
-// moving (`stretchAmountX` / `stretchAmountY`, computed in BlueCursorView),
-// and a slight directional lean while chasing the cursor.
-struct CursorPiggyView: View {
-    let stretchAmountX: CGFloat
-    let stretchAmountY: CGFloat
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timelineContext in
-            let wobbleTime = timelineContext.date.timeIntervalSinceReferenceDate
-            let idleBreathingPulse = 1.0 + CGFloat(sin(wobbleTime * 2.4)) * 0.05
-            // A tiny continuous in-place hop so the piggy never looks frozen,
-            // even while the cursor is sitting perfectly still.
-            let idleHopOffsetY = CGFloat(sin(wobbleTime * 3.0)) * 1.0
-            // Lean into the direction of travel — reuses the same horizontal
-            // squash-and-stretch signal so the lean and the stretch always
-            // agree with each other instead of fighting visually.
-            let travelLeanDegrees = Double(stretchAmountX) * -32.0
-
-            Image("MenuBarPiggyIcon")
-                .resizable()
-                .frame(width: 22, height: 22)
-                .scaleEffect(x: idleBreathingPulse + stretchAmountX, y: idleBreathingPulse + stretchAmountY)
-                .rotationEffect(.degrees(travelLeanDegrees))
-                .offset(y: idleHopOffsetY)
-        }
-    }
-}
-
 // PreferenceKey for tracking bubble size
 struct SizePreferenceKey: PreferenceKey {
     static var defaultValue: CGSize = .zero
@@ -322,33 +286,6 @@ struct BlueCursorView: View {
                         navigationBubbleSize = newSize
                     }
             }
-
-            // Piggy bank cursor buddy — shown when idle or while TTS is playing
-            // (responding). All three states (piggy, waveform, spinner) stay in
-            // the view tree permanently and cross-fade via opacity so SwiftUI
-            // doesn't remove/re-insert them (which caused a visible cursor "pop").
-            //
-            // During cursor following: fast spring animation for snappy tracking, plus
-            // squash-and-stretch driven by blobStretchAmountX/Y for a springy feel.
-            // During navigation: NO implicit position animation — the frame-by-frame
-            // bezier timer controls position directly at 60fps for a smooth arc flight.
-            CursorPiggyView(stretchAmountX: blobStretchAmountX, stretchAmountY: blobStretchAmountY)
-                .rotationEffect(.degrees(buddyRotationDegrees))
-                .shadow(color: Color.black.opacity(0.3), radius: 5 + (buddyFlightScale - 1.0) * 16, x: 0, y: 3)
-                .scaleEffect(buddyFlightScale)
-                .opacity(buddyIsVisibleOnThisScreen && (companionManager.voiceState == .idle || companionManager.voiceState == .responding) ? cursorOpacity : 0)
-                .position(cursorPosition)
-                .animation(
-                    buddyNavigationMode == .followingCursor
-                        ? .spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0)
-                        : nil,
-                    value: cursorPosition
-                )
-                .animation(.easeIn(duration: 0.25), value: companionManager.voiceState)
-                .animation(
-                    buddyNavigationMode == .navigatingToTarget ? nil : .easeInOut(duration: 0.3),
-                    value: buddyRotationDegrees
-                )
 
             // Blue waveform — replaces the triangle while listening
             BlueCursorWaveformView(audioPowerLevel: companionManager.currentAudioPowerLevel)

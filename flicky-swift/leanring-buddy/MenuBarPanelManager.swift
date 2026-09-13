@@ -13,7 +13,6 @@
 
 import AppKit
 import SwiftUI
-import QuartzCore
 
 extension Notification.Name {
     static let clickyDismissPanel = Notification.Name("clickyDismissPanel")
@@ -66,47 +65,13 @@ final class MenuBarPanelManager: NSObject {
 
         guard let button = statusItem?.button else { return }
 
-        button.image = makeClickyMenuBarIcon()
-        // The piggy bank artwork is already in full color (pink body, gold
-        // coin) — a template rendering would flatten it to a solid
-        // black/white silhouette, so keep it as a normal color image.
-        button.image?.isTemplate = false
+        button.image = NSImage(
+            systemSymbolName: "sparkles",
+            accessibilityDescription: "Clicky"
+        )
+        button.image?.isTemplate = true
         button.action = #selector(statusItemClicked)
         button.target = self
-
-        addIdleBreathingAnimation(to: button)
-    }
-
-    /// Loads the piggy-bank menu bar icon (transparent background, pink
-    /// body, gold coin) from the asset catalog and sizes it down to a
-    /// standard menu bar icon size.
-    private func makeClickyMenuBarIcon() -> NSImage {
-        let iconSize: CGFloat = 18
-
-        guard let sourceImage = NSImage(named: "MenuBarPiggyIcon")?.copy() as? NSImage else {
-            return NSImage(size: NSSize(width: iconSize, height: iconSize))
-        }
-
-        sourceImage.size = NSSize(width: iconSize, height: iconSize)
-        return sourceImage
-    }
-
-    /// Gives the piggy bank icon a small, continuous idle animation — a
-    /// gentle "breathing" scale pulse — so the menu bar icon feels a little
-    /// alive without being distracting. Purely cosmetic; does not reflect
-    /// any app state.
-    private func addIdleBreathingAnimation(to button: NSStatusBarButton) {
-        button.wantsLayer = true
-        guard let layer = button.layer else { return }
-
-        let breathingPulse = CABasicAnimation(keyPath: "transform.scale")
-        breathingPulse.fromValue = 1.0
-        breathingPulse.toValue = 1.12
-        breathingPulse.duration = 1.35
-        breathingPulse.autoreverses = true
-        breathingPulse.repeatCount = .infinity
-        breathingPulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        layer.add(breathingPulse, forKey: "piggyIconIdleBreathingPulse")
     }
 
     /// Opens the panel automatically on app launch so the user sees
