@@ -99,6 +99,26 @@ class NessieAPIClient {
                 )
             }.sorted { $0.date < $1.date }
 
+            // 4b. Every recurring bill regardless of when its next charge
+            // falls — powers the "Subscriptions" tracker, which needs the
+            // full recurring commitment (e.g. a $15/mo streaming charge due
+            // in 3 weeks), not just what's due in the next 14 days.
+            let recurringBills: [UpcomingBill] = billsData.compactMap { bill in
+                guard bill["recurring_date"] != nil else { return nil }
+
+                let dateString = (bill["payment_date"] as? String) ?? (bill["upcoming_payment_date"] as? String) ?? ""
+                let amountRaw = bill["payment_amount"] as? Double ?? 0
+                let billName = (bill["nickname"] as? String) ?? (bill["payee"] as? String) ?? "Subscription"
+
+                return UpcomingBill(
+                    id: bill["_id"] as? String ?? UUID().uuidString,
+                    label: billName,
+                    date: dateString,
+                    amountCents: dollarsToCents(amountRaw),
+                    recurring: true
+                )
+            }.sorted { $0.date < $1.date }
+
             // 5. Calculate safe-to-spend = balance – upcoming bill total – reserve
             let upcomingBillTotalCents = upcomingBills.reduce(0) { $0 + $1.amountCents }
             let safeToSpendCents = max(0, balanceCents - upcomingBillTotalCents - reserveCents)
@@ -124,6 +144,18 @@ class NessieAPIClient {
                 return sum + dollarsToCents(amount)
             }
 
+            // 7. Spending by category — best-effort, never blocks the rest of
+            // the dashboard. Nessie's `/purchases` records what was bought
+            // and which merchant it came from; the merchant itself carries
+            // the category tag (e.g. "Fast Food", "Clothing", "Gas"). If the
+            // sandbox account has no purchases yet this simply comes back
+            // empty and the dashboard shows an honest empty state instead of
+            // guessing categories from unrelated data.
+            let spendingByCategory = await fetchSpendingByCategory(
+                accountId: resolvedAccountId,
+                since: thirtyDaysAgo
+            )
+
             return FinancialInsights(
                 balanceCents: balanceCents,
                 safeToSpendCents: safeToSpendCents,
@@ -135,7 +167,9 @@ class NessieAPIClient {
                 accountLast4: accountLast4,
                 accountType: accountType,
                 rewardsPoints: rewardsPoints,
-                asOf: Date()
+                asOf: Date(),
+                recurringBills: recurringBills,
+                spendingByCategory: spendingByCategory
             )
         } catch {
             print("⚠️ Nessie: fetchFinancialInsights failed: \(error.localizedDescription)")
@@ -147,6 +181,79 @@ class NessieAPIClient {
     /// Used to verify a login and present account choices.
     func listCustomerAccounts(customerId: String) async -> [[String: Any]] {
         return (try? await fetchJSONArray(path: "/customers/\(customerId)/accounts")) ?? []
+    }
+
+    /// Builds a spending-by-category breakdown for the given account over
+    /// the last `since` window, by joining Nessie's `/purchases` against
+    /// `/merchants` (merchants carry the category tag). Entirely best-effort:
+    /// any failure (no purchases endpoint access, empty sandbox data, a
+    /// merchant lookup failing) degrades to an empty array rather than
+    /// throwing, so this can never break the rest of the financial snapshot.
+    private func fetchSpendingByCategory(accountId: String, since: Date) async -> [CategorySpending] {
+        guard let purchasesData = try? await fetchJSONArray(path: "/accounts/\(accountId)/purchases") else {
+            return []
+        }
+
+        // Only recent, non-cancelled purchases count toward the breakdown —
+        // matches the same "last 30 days" window used for deposits/withdrawals.
+        let recentPurchases = purchasesData.filter { purchase in
+            guard let dateStr = purchase["purchase_date"] as? String,
+                  let date = parseISODate(dateStr) else { return false }
+            return date >= since && (purchase["status"] as? String) != "cancelled"
+        }
+        guard !recentPurchases.isEmpty else { return [] }
+
+        // Fetch each distinct merchant exactly once (purchases frequently
+        // repeat the same merchant), in parallel, so this stays fast even
+        // with dozens of purchases.
+        let uniqueMerchantIds = Set(recentPurchases.compactMap { $0["merchant_id"] as? String })
+        var merchantCategoryById: [String: String] = [:]
+
+        await withTaskGroup(of: (String, String?).self) { taskGroup in
+            for merchantId in uniqueMerchantIds {
+                taskGroup.addTask {
+                    guard let merchantData = try? await self.fetchJSON(path: "/merchants/\(merchantId)") as? [String: Any] else {
+                        return (merchantId, nil)
+                    }
+                    // Nessie merchants store category as either a single
+                    // string or an array of tags depending on how the
+                    // sandbox record was seeded — handle both.
+                    if let categoryArray = merchantData["category"] as? [String], let first = categoryArray.first {
+                        return (merchantId, first)
+                    }
+                    if let categoryString = merchantData["category"] as? String, !categoryString.isEmpty {
+                        return (merchantId, categoryString)
+                    }
+                    return (merchantId, nil)
+                }
+            }
+            for await (merchantId, category) in taskGroup {
+                merchantCategoryById[merchantId] = category
+            }
+        }
+
+        // Aggregate purchase totals per category.
+        var totalCentsByCategory: [String: Int] = [:]
+        var countByCategory: [String: Int] = [:]
+
+        for purchase in recentPurchases {
+            guard let merchantId = purchase["merchant_id"] as? String else { continue }
+            let category = (merchantCategoryById[merchantId] ?? "Other").capitalized
+            let amount = purchase["amount"] as? Double ?? 0
+            totalCentsByCategory[category, default: 0] += dollarsToCents(amount)
+            countByCategory[category, default: 0] += 1
+        }
+
+        return totalCentsByCategory
+            .map { category, totalCents in
+                CategorySpending(
+                    id: category,
+                    category: category,
+                    totalCents: totalCents,
+                    transactionCount: countByCategory[category] ?? 0
+                )
+            }
+            .sorted { $0.totalCents > $1.totalCents }
     }
 
     // MARK: - Private Helpers

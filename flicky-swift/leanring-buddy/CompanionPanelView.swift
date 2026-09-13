@@ -31,22 +31,14 @@ struct CompanionPanelView: View {
                             .padding(.horizontal, 16)
                             .padding(.top, 16)
                     } else {
+                        // This panel is intentionally account/financial info only —
+                        // shopping search results and comparisons live in the
+                        // separate right-edge SuggestionsDrawer instead (see
+                        // SuggestionsDrawerManager.swift), so this stays focused on
+                        // "what's in my account" rather than "what Flicky is shopping for."
                         financialProofSection
                             .padding(.horizontal, 16)
                             .padding(.top, 16)
-
-                        if let searchResults = companionManager.productSearchResults,
-                           !searchResults.results.isEmpty {
-                            comparisonSection(searchResults)
-                                .padding(.horizontal, 16)
-                                .padding(.top, 12)
-                        }
-
-                        if let navigatedURL = companionManager.lastNavigatedURL {
-                            navigationStatusSection(navigatedURL)
-                                .padding(.horizontal, 16)
-                                .padding(.top, 12)
-                        }
 
                         controlsSection
                             .padding(.horizontal, 16)
@@ -362,142 +354,45 @@ struct CompanionPanelView: View {
                     .foregroundColor(DS.Colors.warning)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            if companionManager.financialInsights != nil {
+                viewFullInsightsButton
+            }
         }
     }
 
-    // MARK: - Comparison Section
-
-    private func comparisonSection(_ response: ProductSearchResponse) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("PRICE COMPARISON")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(DS.Colors.textTertiary)
+    // Opens the toggleable insights dashboard (see
+    // FinancialInsightsDashboardManager) so the user can dig into spending
+    // trends, the full bill breakdown, and rewards value beyond what fits in
+    // this compact menu bar panel — accessible any time, not just when Flicky
+    // proactively opens it via [INSIGHTS].
+    private var viewFullInsightsButton: some View {
+        Button(action: {
+            companionManager.insightsDashboardManager.toggle()
+        }) {
+            HStack(spacing: 6) {
+                Image(systemName: "chart.bar.xaxis")
+                    .font(.system(size: 11))
+                Text("View Full Insights")
+                    .font(.system(size: 11, weight: .semibold))
                 Spacer()
-                Text("\"\(response.query)\"")
+                Image(systemName: "arrow.up.right")
                     .font(.system(size: 9))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .lineLimit(1)
             }
-
-            ForEach(response.results.prefix(4)) { result in
-                Button(action: {
-                    if let url = URL(string: result.url) {
-                        NSWorkspace.shared.open(url)
-                    }
-                }) {
-                    HStack(spacing: 8) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(result.title)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(DS.Colors.textSecondary)
-                                .lineLimit(1)
-                            HStack(spacing: 4) {
-                                Text(result.source)
-                                    .font(.system(size: 9))
-                                    .foregroundColor(DS.Colors.textTertiary)
-                                if result.isUsed {
-                                    Text("USED")
-                                        .font(.system(size: 8, weight: .semibold))
-                                        .foregroundColor(DS.Colors.blue400)
-                                        .padding(.horizontal, 4)
-                                        .padding(.vertical, 1)
-                                        .background(Capsule().fill(DS.Colors.blue400.opacity(0.15)))
-                                }
-                            }
-                        }
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text(result.price)
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(DS.Colors.textPrimary)
-                            Image(systemName: "arrow.up.right")
-                                .font(.system(size: 9))
-                                .foregroundColor(DS.Colors.textTertiary)
-                        }
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(result.isUsed ? DS.Colors.blue400.opacity(0.05) : Color.white.opacity(0.04))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .stroke(result.isUsed ? DS.Colors.blue400.opacity(0.2) : DS.Colors.borderSubtle, lineWidth: 0.5)
-                    )
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
-            }
-
-            // Search URL shortcuts
-            if !response.searchUrls.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(Array(response.searchUrls.prefix(3)), id: \.key) { key, urlStr in
-                        if let url = URL(string: urlStr) {
-                            Button(action: { NSWorkspace.shared.open(url) }) {
-                                Text(key.capitalized)
-                                    .font(.system(size: 9, weight: .medium))
-                                    .foregroundColor(DS.Colors.textTertiary)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Capsule().stroke(DS.Colors.borderSubtle, lineWidth: 0.5))
-                            }
-                            .buttonStyle(.plain)
-                            .pointerCursor()
-                        }
-                    }
-                }
-            }
+            .foregroundColor(DS.Colors.blue400)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(DS.Colors.blue400.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(DS.Colors.blue400.opacity(0.2), lineWidth: 0.5)
+            )
         }
-    }
-
-    // MARK: - Navigation Status Section
-
-    private func navigationStatusSection(_ url: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "safari")
-                .font(.system(size: 11))
-                .foregroundColor(DS.Colors.blue400)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Opened in browser")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
-                if let reason = companionManager.lastNavigationReason {
-                    Text(reason)
-                        .font(.system(size: 9))
-                        .foregroundColor(DS.Colors.textTertiary)
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer()
-
-            Button(action: {
-                if let validURL = URL(string: url) { NSWorkspace.shared.open(validURL) }
-            }) {
-                Text("Reopen")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(DS.Colors.blue400)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Capsule().fill(DS.Colors.blue400.opacity(0.12)))
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(DS.Colors.blue400.opacity(0.05))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(DS.Colors.blue400.opacity(0.2), lineWidth: 0.5)
-        )
+        .buttonStyle(.plain)
+        .pointerCursor()
     }
 
     // MARK: - Controls Section
@@ -513,8 +408,42 @@ struct CompanionPanelView: View {
                     .foregroundColor(DS.Colors.textSecondary)
             }
 
+            if companionManager.voiceState != .idle {
+                stopFlickyButton
+            }
+
             modelPickerRow
         }
+    }
+
+    // Redundant with the stop button on the response overlay itself — this
+    // one lives in the menu bar panel so the user can still cut Flicky off
+    // even if the overlay bubble isn't visible or easy to reach.
+    private var stopFlickyButton: some View {
+        Button(action: {
+            companionManager.stopCurrentResponse()
+        }) {
+            HStack(spacing: 6) {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 10))
+                Text("Stop Flicky")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundColor(DS.Colors.destructiveText)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(DS.Colors.destructive.opacity(0.1))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(DS.Colors.destructive.opacity(0.25), lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
     }
 
     private var modelPickerRow: some View {

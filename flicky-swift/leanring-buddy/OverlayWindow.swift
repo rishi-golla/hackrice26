@@ -52,120 +52,38 @@ class OverlayWindow: NSWindow {
     }
 }
 
-// Organic "gooey" blob outline. Eight points are sampled around a circle
-// and their radius is modulated by two overlapping sine waves so the
-// silhouette constantly jiggles instead of sitting as a perfect circle.
-// `wobbleTime` is fed a continuously increasing timestamp from a
-// TimelineView so the blob is always alive, even while the cursor is
-// perfectly still.
-struct BlobShape: Shape {
-    var wobbleTime: Double
-
-    func path(in rect: CGRect) -> Path {
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        let baseRadius = min(rect.width, rect.height) / 2
-        let pointCount = 8
-
-        var points: [CGPoint] = []
-        for pointIndex in 0..<pointCount {
-            let angle = (Double(pointIndex) / Double(pointCount)) * 2 * Double.pi
-            let wobble = sin(angle * 3 + wobbleTime * 1.6) * 0.07
-                       + sin(angle * 2 - wobbleTime * 1.1) * 0.05
-            let radius = baseRadius * (1.0 + wobble)
-            points.append(CGPoint(
-                x: center.x + CGFloat(cos(angle)) * radius,
-                y: center.y + CGFloat(sin(angle)) * radius
-            ))
-        }
-
-        // Connect the sampled points with quadratic curves through their
-        // midpoints so the outline is smooth and rounded rather than
-        // faceted, giving it a soft "slime" look.
-        func midpoint(_ pointA: CGPoint, _ pointB: CGPoint) -> CGPoint {
-            CGPoint(x: (pointA.x + pointB.x) / 2, y: (pointA.y + pointB.y) / 2)
-        }
-
-        var path = Path()
-        path.move(to: midpoint(points[points.count - 1], points[0]))
-        for pointIndex in 0..<points.count {
-            let currentPoint = points[pointIndex]
-            let nextPoint = points[(pointIndex + 1) % points.count]
-            path.addQuadCurve(to: midpoint(currentPoint, nextPoint), control: currentPoint)
-        }
-        path.closeSubpath()
-        return path
-    }
-}
-
-// Two small blinking eyes rendered on top of the blob body to give it
-// personality. Blinks on a random 2.5–5s cadence, independent of cursor
-// movement, so the buddy feels alive even when idle.
-private struct BlobEyesView: View {
-    @State private var isBlinking = false
-
-    var body: some View {
-        HStack(spacing: 4) {
-            eye
-            eye
-        }
-        .offset(y: -1)
-        .onAppear { scheduleNextBlink() }
-    }
-
-    private var eye: some View {
-        ZStack {
-            Circle()
-                .fill(Color.white)
-                .frame(width: 4, height: isBlinking ? 0.5 : 4)
-            if !isBlinking {
-                Circle()
-                    .fill(Color.black)
-                    .frame(width: 2, height: 2)
-            }
-        }
-    }
-
-    private func scheduleNextBlink() {
-        let delayUntilNextBlink = Double.random(in: 2.5...5.0)
-        DispatchQueue.main.asyncAfter(deadline: .now() + delayUntilNextBlink) {
-            withAnimation(.easeInOut(duration: 0.08)) { isBlinking = true }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                withAnimation(.easeInOut(duration: 0.08)) { isBlinking = false }
-                scheduleNextBlink()
-            }
-        }
-    }
-}
-
-// The cute blob buddy that replaces the old blue triangle cursor. Combines
-// the wobbling BlobShape body, a soft gradient fill + glow, a gentle idle
-// "breathing" pulse, blinking eyes, and a squash-and-stretch deformation
-// driven by how fast the buddy is currently moving (see `stretchAmountX`
-// / `stretchAmountY` in BlueCursorView) for a springy, gooey feel.
-struct CursorBlobView: View {
+// The pixel-art piggy bank buddy that follows the user's cursor — replaces
+// the earlier wobbling blue "gooey blob" cursor (which itself replaced an
+// even earlier blue triangle). Reuses the same `MenuBarPiggyIcon` artwork as
+// the menu bar icon (transparent background) so the character is consistent
+// everywhere it appears in the app. Since the artwork is a static pixel-art
+// image rather than a vector shape, "aliveness" comes entirely from motion:
+// a gentle idle "breathing" scale pulse, a tiny continuous in-place hop, a
+// squash-and-stretch deformation driven by how fast the buddy is currently
+// moving (`stretchAmountX` / `stretchAmountY`, computed in BlueCursorView),
+// and a slight directional lean while chasing the cursor.
+struct CursorPiggyView: View {
     let stretchAmountX: CGFloat
     let stretchAmountY: CGFloat
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timelineContext in
             let wobbleTime = timelineContext.date.timeIntervalSinceReferenceDate
-            let idleBreathingPulse = 1.0 + CGFloat(sin(wobbleTime * 2.4)) * 0.04
+            let idleBreathingPulse = 1.0 + CGFloat(sin(wobbleTime * 2.4)) * 0.05
+            // A tiny continuous in-place hop so the piggy never looks frozen,
+            // even while the cursor is sitting perfectly still.
+            let idleHopOffsetY = CGFloat(sin(wobbleTime * 3.0)) * 1.0
+            // Lean into the direction of travel — reuses the same horizontal
+            // squash-and-stretch signal so the lean and the stretch always
+            // agree with each other instead of fighting visually.
+            let travelLeanDegrees = Double(stretchAmountX) * -32.0
 
-            ZStack {
-                BlobShape(wobbleTime: wobbleTime)
-                    .fill(
-                        RadialGradient(
-                            colors: [DS.Colors.overlayCursorBlue.opacity(0.85), DS.Colors.overlayCursorBlue],
-                            center: .topLeading,
-                            startRadius: 1,
-                            endRadius: 16
-                        )
-                    )
-                    .frame(width: 18, height: 18)
-                    .scaleEffect(x: idleBreathingPulse + stretchAmountX, y: idleBreathingPulse + stretchAmountY)
-
-                BlobEyesView()
-            }
+            Image("MenuBarPiggyIcon")
+                .resizable()
+                .frame(width: 22, height: 22)
+                .scaleEffect(x: idleBreathingPulse + stretchAmountX, y: idleBreathingPulse + stretchAmountY)
+                .rotationEffect(.degrees(travelLeanDegrees))
+                .offset(y: idleHopOffsetY)
         }
     }
 }
@@ -405,18 +323,18 @@ struct BlueCursorView: View {
                     }
             }
 
-            // Cute blob cursor — shown when idle or while TTS is playing (responding).
-            // All three states (blob, waveform, spinner) stay in the view tree
-            // permanently and cross-fade via opacity so SwiftUI doesn't remove/re-insert
-            // them (which caused a visible cursor "pop").
+            // Piggy bank cursor buddy — shown when idle or while TTS is playing
+            // (responding). All three states (piggy, waveform, spinner) stay in
+            // the view tree permanently and cross-fade via opacity so SwiftUI
+            // doesn't remove/re-insert them (which caused a visible cursor "pop").
             //
             // During cursor following: fast spring animation for snappy tracking, plus
-            // squash-and-stretch driven by blobStretchAmountX/Y for a springy, gooey feel.
+            // squash-and-stretch driven by blobStretchAmountX/Y for a springy feel.
             // During navigation: NO implicit position animation — the frame-by-frame
             // bezier timer controls position directly at 60fps for a smooth arc flight.
-            CursorBlobView(stretchAmountX: blobStretchAmountX, stretchAmountY: blobStretchAmountY)
+            CursorPiggyView(stretchAmountX: blobStretchAmountX, stretchAmountY: blobStretchAmountY)
                 .rotationEffect(.degrees(buddyRotationDegrees))
-                .shadow(color: DS.Colors.overlayCursorBlue, radius: 8 + (buddyFlightScale - 1.0) * 20, x: 0, y: 0)
+                .shadow(color: Color.black.opacity(0.3), radius: 5 + (buddyFlightScale - 1.0) * 16, x: 0, y: 3)
                 .scaleEffect(buddyFlightScale)
                 .opacity(buddyIsVisibleOnThisScreen && (companionManager.voiceState == .idle || companionManager.voiceState == .responding) ? cursorOpacity : 0)
                 .position(cursorPosition)

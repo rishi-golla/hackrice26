@@ -14,6 +14,11 @@ final class CompanionResponseOverlayViewModel: ObservableObject {
     @Published var streamingResponseText: String = ""
     @Published var isShowingResponse: Bool = false
     @Published var financialBadge: FinancialBadgeData? = nil
+
+    // Set by CompanionResponseOverlayManager so the stop button rendered inside
+    // FlickyResponseOverlayView can reach back out to CompanionManager without
+    // the view itself needing a reference to it.
+    var onStopButtonTapped: (() -> Void)?
 }
 
 struct FinancialBadgeData {
@@ -28,20 +33,58 @@ struct FinancialBadgeData {
 final class CompanionResponseOverlayManager {
     private let viewModel = CompanionResponseOverlayViewModel()
     private var overlayPanel: NSPanel?
-    private var cursorTrackingTimer: Timer?
     private var autoHideWorkItem: DispatchWorkItem?
 
     private let cursorOffsetX: CGFloat = 22
     private let cursorOffsetY: CGFloat = 6
     private let overlayMaxWidth: CGFloat = 360
 
-    func showOverlayAndBeginStreaming() {
+    /// Exposes the stop-button tap to whoever owns this manager (CompanionManager),
+    /// without the SwiftUI view needing a direct reference back to it.
+    var onStopButtonTapped: (() -> Void)? {
+        get { viewModel.onStopButtonTapped }
+        set { viewModel.onStopButtonTapped = newValue }
+    }
+
+    /// Begins a brand-new autonomous question/session. Positions the bubble once
+    /// near the cursor's current location and then holds that position for every
+    /// round of the session, including any autonomous follow-up rounds Flicky
+    /// runs on its own without the user pressing push-to-talk again.
+    ///
+    /// Previously this repositioned the panel every frame to continuously chase
+    /// the live mouse position (via a 60Hz timer), even while the user was just
+    /// reading the response. If the user moved their mouse at all after asking
+    /// a question, the bubble would visibly teleport around the screen following
+    /// it — which read as the UI "crashing and going to different places."
+    ///
+    /// Later, `beginNextAutonomousRound()` was introduced for the multi-round
+    /// research loop, but the loop was calling this method again at the top of
+    /// every round — which repositions near wherever the mouse happens to be at
+    /// that moment. Since rounds are seconds apart (TTS playback time) and the
+    /// user's mouse naturally drifts in between, the bubble still visibly jumped
+    /// around over the course of one autonomous session. Repositioning only here,
+    /// once per whole session, fixes that for good.
+    func beginNewAutonomousSession() {
         autoHideWorkItem?.cancel()
         autoHideWorkItem = nil
         viewModel.streamingResponseText = ""
         viewModel.isShowingResponse = true
         createOverlayPanelIfNeeded()
-        startCursorTracking()
+        repositionPanelNearCursor()
+        overlayPanel?.alphaValue = 1
+        overlayPanel?.orderFrontRegardless()
+    }
+
+    /// Begins the next round of an already-visible autonomous session: clears
+    /// the streamed text so the next round's answer types in fresh, but
+    /// deliberately does NOT move the panel — it stays exactly where
+    /// `beginNewAutonomousSession()` first placed it.
+    func beginNextAutonomousRound() {
+        autoHideWorkItem?.cancel()
+        autoHideWorkItem = nil
+        viewModel.streamingResponseText = ""
+        viewModel.isShowingResponse = true
+        createOverlayPanelIfNeeded()
         overlayPanel?.alphaValue = 1
         overlayPanel?.orderFrontRegardless()
     }
@@ -68,7 +111,20 @@ final class CompanionResponseOverlayManager {
         )
     }
 
-    func finishStreaming() {
+    /// Marks the current round's text as fully streamed in.
+    ///
+    /// `isFinalRound` distinguishes a truly finished answer from a round that is
+    /// part of an ongoing autonomous research session (see
+    /// `CompanionManager.runFlickyQueryPipeline`). Only the final round schedules
+    /// the auto-hide timer — while Flicky is still iterating, the bubble should
+    /// stay on screen and simply get replaced by the next round's text instead
+    /// of disappearing and reappearing between rounds.
+    func finishStreaming(isFinalRound: Bool = true) {
+        autoHideWorkItem?.cancel()
+        autoHideWorkItem = nil
+
+        guard isFinalRound else { return }
+
         let hideWork = DispatchWorkItem { [weak self] in
             self?.fadeOutAndHide()
         }
@@ -79,7 +135,6 @@ final class CompanionResponseOverlayManager {
     func hideOverlay() {
         autoHideWorkItem?.cancel()
         autoHideWorkItem = nil
-        stopCursorTracking()
         viewModel.isShowingResponse = false
         viewModel.streamingResponseText = ""
         overlayPanel?.orderOut(nil)
@@ -101,7 +156,9 @@ final class CompanionResponseOverlayManager {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        panel.ignoresMouseEvents = true
+        // Must accept mouse events (not click-through) so the stop button
+        // rendered inside the bubble is actually clickable.
+        panel.ignoresMouseEvents = false
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isExcludedFromWindowsMenu = true
@@ -113,17 +170,6 @@ final class CompanionResponseOverlayManager {
         hostingView.frame = initialFrame
         panel.contentView = hostingView
         overlayPanel = panel
-    }
-
-    private func startCursorTracking() {
-        cursorTrackingTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.repositionPanelNearCursor() }
-        }
-    }
-
-    private func stopCursorTracking() {
-        cursorTrackingTimer?.invalidate()
-        cursorTrackingTimer = nil
     }
 
     private func repositionPanelNearCursor() {
@@ -180,6 +226,28 @@ private struct FlickyResponseOverlayView: View {
     var body: some View {
         if viewModel.isShowingResponse {
             VStack(alignment: .leading, spacing: 0) {
+                // Stop button — lets the user cut off Flicky mid-answer or
+                // mid-autonomous-research-loop, since until now there was no
+                // way to interrupt it once it started talking.
+                HStack {
+                    Spacer()
+                    Button(action: { viewModel.onStopButtonTapped?() }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "stop.fill")
+                                .font(.system(size: 7))
+                            Text("Stop")
+                                .font(.system(size: 9, weight: .semibold))
+                        }
+                        .foregroundColor(DS.Colors.textTertiary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Color.white.opacity(0.08)))
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                }
+                .padding(.bottom, 6)
+
                 // Main response text
                 Text(viewModel.streamingResponseText.isEmpty ? "…" : viewModel.streamingResponseText)
                     .font(.system(size: 13, weight: .regular))

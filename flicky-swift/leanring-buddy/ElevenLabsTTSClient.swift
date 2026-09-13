@@ -41,7 +41,12 @@ final class ElevenLabsTTSClient {
             "model_id": "eleven_flash_v2_5",
             "voice_settings": [
                 "stability": 0.5,
-                "similarity_boost": 0.75
+                "similarity_boost": 0.75,
+                // The user asked for Flicky to "speak really fast" — like a
+                // friend giving you a quick, confident answer rather than a
+                // scripted assistant. 1.15 is close to ElevenLabs' fastest
+                // supported speed (max ~1.2) while staying intelligible.
+                "speed": 1.15
             ]
         ]
 

@@ -13,6 +13,7 @@
 
 import AppKit
 import SwiftUI
+import QuartzCore
 
 extension Notification.Name {
     static let clickyDismissPanel = Notification.Name("clickyDismissPanel")
@@ -66,45 +67,46 @@ final class MenuBarPanelManager: NSObject {
         guard let button = statusItem?.button else { return }
 
         button.image = makeClickyMenuBarIcon()
-        button.image?.isTemplate = true
+        // The piggy bank artwork is already in full color (pink body, gold
+        // coin) — a template rendering would flatten it to a solid
+        // black/white silhouette, so keep it as a normal color image.
+        button.image?.isTemplate = false
         button.action = #selector(statusItemClicked)
         button.target = self
+
+        addIdleBreathingAnimation(to: button)
     }
 
-    /// Draws the clicky triangle as a menu bar icon. Uses the same shape
-    /// and rotation as the in-app cursor so the menu bar icon matches.
+    /// Loads the piggy-bank menu bar icon (transparent background, pink
+    /// body, gold coin) from the asset catalog and sizes it down to a
+    /// standard menu bar icon size.
     private func makeClickyMenuBarIcon() -> NSImage {
         let iconSize: CGFloat = 18
-        let image = NSImage(size: NSSize(width: iconSize, height: iconSize))
-        image.lockFocus()
 
-        let triangleSize = iconSize * 0.7
-        let cx = iconSize * 0.50
-        let cy = iconSize * 0.50
-        let height = triangleSize * sqrt(3.0) / 2.0
-
-        let top = CGPoint(x: cx, y: cy + height / 1.5)
-        let bottomLeft = CGPoint(x: cx - triangleSize / 2, y: cy - height / 3)
-        let bottomRight = CGPoint(x: cx + triangleSize / 2, y: cy - height / 3)
-
-        let angle = 35.0 * .pi / 180.0
-        func rotate(_ point: CGPoint) -> CGPoint {
-            let dx = point.x - cx, dy = point.y - cy
-            let cosA = CGFloat(cos(angle)), sinA = CGFloat(sin(angle))
-            return CGPoint(x: cx + cosA * dx - sinA * dy, y: cy + sinA * dx + cosA * dy)
+        guard let sourceImage = NSImage(named: "MenuBarPiggyIcon")?.copy() as? NSImage else {
+            return NSImage(size: NSSize(width: iconSize, height: iconSize))
         }
 
-        let path = NSBezierPath()
-        path.move(to: rotate(top))
-        path.line(to: rotate(bottomLeft))
-        path.line(to: rotate(bottomRight))
-        path.close()
+        sourceImage.size = NSSize(width: iconSize, height: iconSize)
+        return sourceImage
+    }
 
-        NSColor.black.setFill()
-        path.fill()
+    /// Gives the piggy bank icon a small, continuous idle animation — a
+    /// gentle "breathing" scale pulse — so the menu bar icon feels a little
+    /// alive without being distracting. Purely cosmetic; does not reflect
+    /// any app state.
+    private func addIdleBreathingAnimation(to button: NSStatusBarButton) {
+        button.wantsLayer = true
+        guard let layer = button.layer else { return }
 
-        image.unlockFocus()
-        return image
+        let breathingPulse = CABasicAnimation(keyPath: "transform.scale")
+        breathingPulse.fromValue = 1.0
+        breathingPulse.toValue = 1.12
+        breathingPulse.duration = 1.35
+        breathingPulse.autoreverses = true
+        breathingPulse.repeatCount = .infinity
+        breathingPulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.add(breathingPulse, forKey: "piggyIconIdleBreathingPulse")
     }
 
     /// Opens the panel automatically on app launch so the user sees

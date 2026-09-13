@@ -9,6 +9,10 @@
  *   POST /tts               → ElevenLabs TTS API
  *   POST /transcribe-token  → AssemblyAI short-lived token
  *   POST /search            → Serper.dev product search
+ *   POST /fetch-page        → Fetches a single listing URL and extracts
+ *                             readable text (title + body copy) so Flicky
+ *                             can fact-check a listing against the real
+ *                             page instead of only Serper's search snippet.
  */
 
 interface Env {
@@ -17,6 +21,22 @@ interface Env {
   ELEVENLABS_VOICE_ID: string;
   ASSEMBLYAI_API_KEY: string;
   SERPER_API_KEY?: string;
+}
+
+// Minimal hand-rolled ambient type for the Workers runtime's HTMLRewriter
+// API. This project intentionally avoids the @cloudflare/workers-types
+// dependency (see the hand-written `Env` interface above for the same
+// pattern) — `wrangler deploy` bundles via esbuild and doesn't type-check,
+// so this is just enough shape for editor/IDE clarity.
+declare class HTMLRewriter {
+  on(
+    selector: string,
+    handlers: {
+      element?(element: { onEndTag(callback: () => void): void }): void;
+      text?(chunk: { text: string }): void;
+    }
+  ): HTMLRewriter;
+  transform(response: Response): Response;
 }
 
 const corsHeaders = {
@@ -42,6 +62,7 @@ export default {
       if (url.pathname === "/tts") return await handleTTS(request, env);
       if (url.pathname === "/transcribe-token") return await handleTranscribeToken(env);
       if (url.pathname === "/search") return await handleSearch(request, env);
+      if (url.pathname === "/fetch-page") return await handleFetchPage(request);
     } catch (error) {
       console.error(`[${url.pathname}] Unhandled error:`, error);
       return new Response(JSON.stringify({ error: String(error) }), {
@@ -178,7 +199,7 @@ async function handleSearch(request: Request, env: Env): Promise<Response> {
   }
 
   const serperData = await serperResp.json() as {
-    shopping?: Array<{ title?: string; price?: string; link?: string; source?: string; rating?: number }>;
+    shopping?: Array<{ title?: string; price?: string; link?: string; source?: string; rating?: number; imageUrl?: string; delivery?: string }>;
   };
 
   const newResults = (serperData.shopping ?? []).slice(0, 8).map((item) => ({
@@ -187,6 +208,8 @@ async function handleSearch(request: Request, env: Env): Promise<Response> {
     url: item.link ?? "",
     source: item.source ?? "Google Shopping",
     rating: item.rating ?? null,
+    imageUrl: item.imageUrl ?? null,
+    delivery: item.delivery ?? null,
   })).filter((item) => item.url.startsWith("http"));
 
   // Also fetch used items from eBay/Mercari for best-deal detection
@@ -198,7 +221,7 @@ async function handleSearch(request: Request, env: Env): Promise<Response> {
       body: JSON.stringify({ q: `${query} used`, gl: "us", hl: "en", num: 5 }),
     });
     if (usedResp.ok) {
-      const usedData = await usedResp.json() as { shopping?: Array<{ title?: string; price?: string; link?: string; source?: string; rating?: number }> };
+      const usedData = await usedResp.json() as { shopping?: Array<{ title?: string; price?: string; link?: string; source?: string; rating?: number; imageUrl?: string; delivery?: string }> };
       usedResults = (usedData.shopping ?? [])
         .filter((i) => i.source?.toLowerCase().includes("ebay") || i.source?.toLowerCase().includes("mercari"))
         .slice(0, 3)
@@ -208,6 +231,8 @@ async function handleSearch(request: Request, env: Env): Promise<Response> {
           url: i.link ?? "",
           source: (i.source ?? "eBay") + " (used)",
           rating: i.rating ?? null,
+          imageUrl: i.imageUrl ?? null,
+          delivery: i.delivery ?? null,
         }))
         .filter((i) => i.url.startsWith("http"));
     }
@@ -217,4 +242,125 @@ async function handleSearch(request: Request, env: Env): Promise<Response> {
   return new Response(JSON.stringify({ results: allResults, searchUrls, query }), {
     headers: { "content-type": "application/json", ...corsHeaders },
   });
+}
+
+/**
+ * Fetches a single listing page and extracts readable text (page title +
+ * visible body copy, with script/style/nav/header/footer/etc. stripped
+ * out) so Flicky can fact-check a listing (stock status, real shipping
+ * cost, condition, etc.) against the actual page instead of only Serper's
+ * search snippet.
+ *
+ * Deliberately called for at most the 1-3 listings that are about to be
+ * shown to the user in a given round (see CompanionManager.swift), not
+ * every search result — full page text is expensive to both fetch and
+ * feed into Claude, so this route is only ever invoked sparingly.
+ */
+async function handleFetchPage(request: Request): Promise<Response> {
+  const requestBody = (await request.json()) as { url?: string };
+  const targetUrl = typeof requestBody.url === "string" ? requestBody.url.trim() : "";
+
+  if (!targetUrl.startsWith("https://")) {
+    return new Response(
+      JSON.stringify({ error: "Missing or invalid 'url' (must start with https://)" }),
+      { status: 400, headers: { "content-type": "application/json", ...corsHeaders } }
+    );
+  }
+
+  // Many retail/listing sites hang or throttle scraping-looking requests —
+  // bound the fetch so a single slow site can't stall a research round.
+  const abortController = new AbortController();
+  const abortTimeoutId = setTimeout(() => abortController.abort(), 8000);
+
+  let pageResponse: Response;
+  try {
+    pageResponse = await fetch(targetUrl, {
+      signal: abortController.signal,
+      redirect: "follow",
+      headers: {
+        // Plenty of retail sites block requests that don't look like a
+        // real browser, so present a normal desktop Chrome UA.
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml",
+      },
+    });
+  } catch (error) {
+    console.error(`[/fetch-page] Fetch failed for ${targetUrl}:`, error);
+    return new Response(JSON.stringify({ error: "Failed to fetch page" }), {
+      status: 502,
+      headers: { "content-type": "application/json", ...corsHeaders },
+    });
+  } finally {
+    clearTimeout(abortTimeoutId);
+  }
+
+  if (!pageResponse.ok) {
+    console.error(`[/fetch-page] ${targetUrl} returned ${pageResponse.status}`);
+    return new Response(JSON.stringify({ error: `Page returned ${pageResponse.status}` }), {
+      status: 502,
+      headers: { "content-type": "application/json", ...corsHeaders },
+    });
+  }
+
+  const contentType = pageResponse.headers.get("content-type") ?? "";
+  if (!contentType.includes("text/html")) {
+    return new Response(JSON.stringify({ error: "Not an HTML page" }), {
+      status: 415,
+      headers: { "content-type": "application/json", ...corsHeaders },
+    });
+  }
+
+  const MAX_EXTRACTED_TEXT_CHARACTERS = 6000;
+  const NOISE_TAG_SELECTOR = "script, style, nav, header, footer, noscript, svg, iframe, form";
+
+  let extractedTitleText = "";
+  let extractedBodyText = "";
+  // Shared counter for "are we currently inside a noise tag (script/nav/
+  // etc.)". Incremented on every matching open tag, decremented on its
+  // matching end tag, so nested noise tags (e.g. <header><nav>) are still
+  // correctly tracked as "inside a skip region" until fully closed.
+  let noiseTagNestingDepth = 0;
+
+  const rewriter = new HTMLRewriter()
+    .on("title", {
+      text(chunk) {
+        if (extractedTitleText.length < 200) {
+          extractedTitleText += chunk.text;
+        }
+      },
+    })
+    .on(NOISE_TAG_SELECTOR, {
+      element(element) {
+        noiseTagNestingDepth += 1;
+        element.onEndTag(() => {
+          noiseTagNestingDepth = Math.max(0, noiseTagNestingDepth - 1);
+        });
+      },
+    })
+    .on("body *", {
+      text(chunk) {
+        if (noiseTagNestingDepth > 0) return;
+        if (extractedBodyText.length >= MAX_EXTRACTED_TEXT_CHARACTERS) return;
+        const trimmedChunkText = chunk.text.trim();
+        if (!trimmedChunkText) return;
+        extractedBodyText += (extractedBodyText.length > 0 ? " " : "") + trimmedChunkText;
+      },
+    });
+
+  const transformedResponse = rewriter.transform(pageResponse);
+  // HTMLRewriter transforms lazily as the response body is read — the
+  // handlers above never fire unless something actually consumes the
+  // transformed body, so force that here (the text itself is discarded;
+  // we only want the side effects captured above).
+  await transformedResponse.text();
+
+  return new Response(
+    JSON.stringify({
+      url: targetUrl,
+      title: extractedTitleText.trim(),
+      text: extractedBodyText.slice(0, MAX_EXTRACTED_TEXT_CHARACTERS).trim(),
+    }),
+    { headers: { "content-type": "application/json", ...corsHeaders } }
+  );
 }
