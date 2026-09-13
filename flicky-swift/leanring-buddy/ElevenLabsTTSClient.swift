@@ -11,13 +11,14 @@ import AVFoundation
 import Foundation
 
 @MainActor
-final class ElevenLabsTTSClient {
+final class ElevenLabsTTSClient: NSObject, @preconcurrency AVAudioPlayerDelegate {
     private let proxyURL: URL
     private let session: URLSession
 
     /// The audio player for the current TTS playback. Kept alive so the
     /// audio finishes playing even if the caller doesn't hold a reference.
     private var audioPlayer: AVAudioPlayer?
+    private var playbackFinished: (() -> Void)?
 
     init(proxyURL: String) {
         self.proxyURL = URL(string: proxyURL)!
@@ -30,7 +31,7 @@ final class ElevenLabsTTSClient {
 
     /// Sends `text` to ElevenLabs TTS and plays the resulting audio.
     /// Throws on network or decoding errors. Cancellation-safe.
-    func speakText(_ text: String) async throws {
+    func speakText(_ text: String, onPlaybackFinished: (() -> Void)? = nil) async throws {
         var request = URLRequest(url: proxyURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -68,8 +69,15 @@ final class ElevenLabsTTSClient {
         try Task.checkCancellation()
 
         let player = try AVAudioPlayer(data: data)
+        player.delegate = self
         self.audioPlayer = player
-        player.play()
+        self.playbackFinished = onPlaybackFinished
+        guard player.play() else {
+            self.audioPlayer = nil
+            self.playbackFinished = nil
+            throw NSError(domain: "ElevenLabsTTS", code: -2,
+                          userInfo: [NSLocalizedDescriptionKey: "Could not start audio playback"])
+        }
         print("🔊 ElevenLabs TTS: playing \(data.count / 1024)KB audio")
     }
 
@@ -82,5 +90,14 @@ final class ElevenLabsTTSClient {
     func stopPlayback() {
         audioPlayer?.stop()
         audioPlayer = nil
+        playbackFinished = nil
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        guard player === audioPlayer else { return }
+        audioPlayer = nil
+        let callback = playbackFinished
+        playbackFinished = nil
+        callback?()
     }
 }

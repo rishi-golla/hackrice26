@@ -13,6 +13,7 @@ import SwiftUI
 final class CompanionResponseOverlayViewModel: ObservableObject {
     @Published var streamingResponseText: String = ""
     @Published var isShowingResponse: Bool = false
+    @Published var isSpeaking: Bool = false
     @Published var financialBadge: FinancialBadgeData? = nil
 
     // Set by CompanionResponseOverlayManager so the stop button rendered inside
@@ -34,6 +35,7 @@ final class CompanionResponseOverlayManager {
     private let viewModel = CompanionResponseOverlayViewModel()
     private var overlayPanel: NSPanel?
     private var autoHideWorkItem: DispatchWorkItem?
+    private var shouldAutoHideAfterSpeaking = false
 
     private let cursorOffsetX: CGFloat = 22
     private let cursorOffsetY: CGFloat = 6
@@ -67,6 +69,8 @@ final class CompanionResponseOverlayManager {
     func beginNewAutonomousSession() {
         autoHideWorkItem?.cancel()
         autoHideWorkItem = nil
+        shouldAutoHideAfterSpeaking = false
+        viewModel.isSpeaking = false
         viewModel.streamingResponseText = ""
         viewModel.isShowingResponse = true
         createOverlayPanelIfNeeded()
@@ -82,6 +86,8 @@ final class CompanionResponseOverlayManager {
     func beginNextAutonomousRound() {
         autoHideWorkItem?.cancel()
         autoHideWorkItem = nil
+        shouldAutoHideAfterSpeaking = false
+        viewModel.isSpeaking = false
         viewModel.streamingResponseText = ""
         viewModel.isShowingResponse = true
         createOverlayPanelIfNeeded()
@@ -122,8 +128,35 @@ final class CompanionResponseOverlayManager {
     func finishStreaming(isFinalRound: Bool = true) {
         autoHideWorkItem?.cancel()
         autoHideWorkItem = nil
+        shouldAutoHideAfterSpeaking = isFinalRound
 
-        guard isFinalRound else { return }
+        guard isFinalRound, !viewModel.isSpeaking else { return }
+
+        scheduleAutoHide()
+    }
+
+    func beginSpeaking() {
+        viewModel.isSpeaking = true
+        autoHideWorkItem?.cancel()
+        autoHideWorkItem = nil
+        resizePanelToFitContent()
+    }
+
+    func finishSpeaking() {
+        viewModel.isSpeaking = false
+        resizePanelToFitContent()
+        guard shouldAutoHideAfterSpeaking else { return }
+        scheduleAutoHide()
+    }
+
+    func keepTranscriptVisibleAfterStop() {
+        viewModel.isSpeaking = false
+        resizePanelToFitContent()
+        finishStreaming()
+    }
+
+    private func scheduleAutoHide() {
+        autoHideWorkItem?.cancel()
 
         let hideWork = DispatchWorkItem { [weak self] in
             self?.fadeOutAndHide()
@@ -135,6 +168,8 @@ final class CompanionResponseOverlayManager {
     func hideOverlay() {
         autoHideWorkItem?.cancel()
         autoHideWorkItem = nil
+        shouldAutoHideAfterSpeaking = false
+        viewModel.isSpeaking = false
         viewModel.isShowingResponse = false
         viewModel.streamingResponseText = ""
         overlayPanel?.orderOut(nil)
@@ -229,24 +264,28 @@ private struct FlickyResponseOverlayView: View {
                 // Stop button — lets the user cut off Flicky mid-answer or
                 // mid-autonomous-research-loop, since until now there was no
                 // way to interrupt it once it started talking.
-                HStack {
-                    Spacer()
-                    Button(action: { viewModel.onStopButtonTapped?() }) {
-                        HStack(spacing: 3) {
-                            Image(systemName: "stop.fill")
-                                .font(.system(size: 7))
-                            Text("Stop")
-                                .font(.system(size: 9, weight: .semibold))
+                if viewModel.isSpeaking {
+                    HStack {
+                        Spacer()
+                        Button(action: { viewModel.onStopButtonTapped?() }) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "stop.fill")
+                                    .font(.system(size: 7))
+                                Text("Stop")
+                                    .font(.system(size: 9, weight: .semibold))
+                            }
+                            .foregroundColor(DS.Colors.textTertiary)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(Capsule().fill(Color.white.opacity(0.08)))
                         }
-                        .foregroundColor(DS.Colors.textTertiary)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(Color.white.opacity(0.08)))
+                        .buttonStyle(.plain)
+                        .pointerCursor()
+                        .accessibilityLabel("Stop speaking")
+                        .accessibilityHint("Stops the audio and keeps the transcript visible")
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
+                    .padding(.bottom, 6)
                 }
-                .padding(.bottom, 6)
 
                 // Main response text
                 Text(viewModel.streamingResponseText.isEmpty ? "…" : viewModel.streamingResponseText)

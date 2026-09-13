@@ -488,7 +488,7 @@ final class CompanionManager: ObservableObject {
         currentResponseTask?.cancel()
         currentResponseTask = nil
         elevenLabsTTSClient.stopPlayback()
-        responseOverlayManager.hideOverlay()
+        responseOverlayManager.keepTranscriptVisibleAfterStop()
         voiceState = .idle
     }
 
@@ -592,9 +592,13 @@ final class CompanionManager: ObservableObject {
 
             let spokenText = extractSpokenText(from: cleanedResponse)
             if !spokenText.isEmpty {
+                responseOverlayManager.beginSpeaking()
                 do {
-                    try await elevenLabsTTSClient.speakText(spokenText)
+                    try await elevenLabsTTSClient.speakText(spokenText) { [weak self] in
+                        self?.responseOverlayManager.finishSpeaking()
+                    }
                 } catch {
+                    responseOverlayManager.finishSpeaking()
                     if !Task.isCancelled { print("⚠️ TTS: \(error.localizedDescription)") }
                 }
             }
