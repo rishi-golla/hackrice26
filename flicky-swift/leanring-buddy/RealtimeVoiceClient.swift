@@ -255,7 +255,7 @@ final class RealtimeVoiceClient {
                 "instructions": context.instructions,
                 "tools": [[
                     "type": "function", "name": "research_financial_question",
-                    "description": "Ask PeppaPrice's Claude research pipeline to analyze a financial or shopping question using the current screen and verified account data. It can show evidence and search product listings. Not a live stock quote feed. Use for research, shopping, screen actions, and detailed account analysis.",
+                    "description": "Open banking, credit-card, lender, brokerage, and other financial websites in the user's browser, or research financial and shopping questions. Call this when asked to open or visit a site, passing the destination and goal; public navigation needs no connected account. It can interpret supplied screenshots, analyze available account evidence, search merchandise, and open the credit simulator when explicitly requested. Opening a URL does not read the page or submit forms. Not a live stock quote feed.",
                     "parameters": ["type": "object", "properties": ["question": ["type": "string"]],
                                    "required": ["question"], "additionalProperties": false],
                 ]],

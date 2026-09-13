@@ -52,7 +52,7 @@
 - Shared persistent draft basket; SHOP tags gather multiple product categories, BASKET reopens it, Suggestions can add individual listings.
 - Keep query deduplication for model requests separate from URL identity for explicit listing additions.
 - Use integer cents for unambiguous USD prices; unknown/range/installment/foreign-currency values do not enter totals. Show partial totals explicitly.
-- Verified retailer links/photos/prices come from ProductPageResolver. Search intermediaries and unverified metadata cannot fund checkout. Failed refresh invalidates earlier verification.
+- Verify actual retailer pages before adding any basket line or alternative: direct link, photo, positive USD price and explicit in-stock status required. Match actual product titles to the requested category; omit unmatched categories rather than placeholder rows. Failed refresh removes affected products; old saved placeholders are pruned on load. Refresh stale prices automatically; never show a Check products action.
 - Only the user’s reviewed Pay in sandbox action submits a Nessie demo withdrawal through DemoCheckoutLedger. Preserve persisted UUID replay protection, account ownership, pending/failed states, and observed bank balances. Never claim real bank/Plaid validation.
 - ShoppingCheckout animates one task per item and opens actual product URLs; cart and order steps are explicitly simulated. No real retailer payment is submitted. Resume incomplete tasks before finishing; restore the checkout lock before any basket mutation.
 - Preserve cancellation checks before applying search results and owner-only local persistence. No fixture inventory in production.

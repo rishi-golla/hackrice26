@@ -26,7 +26,7 @@ final class ShoppingBasketManager {
             window.isMovableByWindowBackground = true
             window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             let hosting = NSHostingView(rootView: ShoppingBasketView(store: store, checkout: checkout,
-                onVerify: { [weak self] in self?.verifyProducts() },
+                onVerify: { [weak self] in self?.verifyProducts(continueToCheckout: true) },
                 onAddURL: { [weak self] url in self?.addProductURL(url) },
                 onClose: { [weak self] in self?.hide() }))
             hosting.sizingOptions = []
@@ -36,12 +36,13 @@ final class ShoppingBasketManager {
         panel?.setFrame(NSRect(x: screen.visibleFrame.maxX - size.width - 20,
             y: screen.visibleFrame.midY - size.height / 2, width: size.width, height: size.height), display: true)
         panel?.makeKeyAndOrderFront(nil)
+        if !store.isLocked, store.progress == nil, store.lines.contains(where: { $0.product?.readyForDemoCheckout != true }) { verifyProducts() }
     }
 
     func hide() { panel?.orderOut(nil) }
-    func add(_ listing: ProductSearchResult) { store.add(listing); show(); verifyProducts() }
+    func add(_ listing: ProductSearchResult) { show(); addProductURL(listing.url, merchantHint: listing.source) }
 
-    func verifyProducts() {
+    func verifyProducts(continueToCheckout: Bool = false) {
         guard !store.isLocked else { return }
         verificationTask?.cancel()
         let generation = UUID()
@@ -63,10 +64,14 @@ final class ShoppingBasketManager {
                     store.recordVerificationFailure(for: product.url, reason: error.localizedDescription)
                 }
             }
+            if continueToCheckout, store.readyForDemoCheckout {
+                store.progress = nil
+                checkout.prepare(store: store)
+            }
         }
     }
 
-    func addProductURL(_ url: String) {
+    func addProductURL(_ url: String, merchantHint: String? = nil) {
         guard !store.isLocked else { return }
         verificationTask?.cancel()
         let generation = UUID()
@@ -76,7 +81,7 @@ final class ShoppingBasketManager {
             store.progress = "Reading the product’s page, photo, and price…"
             defer { if verificationGeneration == generation { store.progress = nil } }
             do {
-                let page = try await ProductPageResolver().resolve(url: url)
+                let page = try await ProductPageResolver().resolve(url: url, merchantHint: merchantHint)
                 guard !Task.isCancelled, verificationGeneration == generation else { return }
                 store.addVerifiedPage(page)
             } catch {
@@ -219,13 +224,6 @@ struct ShoppingBasketView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 24) {
                         ForEach(store.merchants, id: \.self) { merchant in merchantSection(merchant) }
-                        let unselected = store.lines.filter { $0.product == nil }
-                        if !unselected.isEmpty {
-                            VStack(alignment: .leading, spacing: 16) {
-                                Text("Choose an item").font(.system(size: 13, weight: .semibold)).foregroundStyle(secondary)
-                                ForEach(unselected) { line in lineRow(line) }
-                            }
-                        }
                     }.padding(.horizontal, 24).padding(.bottom, 24)
                 }.frame(minHeight: 0, maxHeight: .infinity)
                 summary
@@ -284,7 +282,7 @@ struct ShoppingBasketView: View {
                         quantityControl(line)
                         if !line.options.isEmpty {
                             Menu(line.product == nil ? "Choose item" : "Alternatives") {
-                                ForEach(line.options) { option in
+                                ForEach(line.options.filter { $0.readyForDemoCheckout }) { option in
                                     Button("\(option.price) · \(option.merchant) · \(option.title)") { store.select(option.url, for: line.id) }
                                 }
                             }.menuStyle(.borderlessButton).fixedSize().font(.system(size: 12)).pointerCursor()
@@ -358,7 +356,7 @@ struct ShoppingBasketView: View {
             } label: {
                 HStack(spacing: 8) {
                     if checkout.isBusy { ProgressView().controlSize(.small) }
-                    Text(checkout.isBusy ? "Preparing…" : (store.readyForDemoCheckout ? "Buy it" : "Check products"))
+                    Text(checkout.isBusy ? "Preparing…" : "Buy it")
                     if !checkout.isBusy { Image(systemName: "arrow.right") }
                 }
             }.buttonStyle(ShoppingPrimaryButtonStyle()).pointerCursor()

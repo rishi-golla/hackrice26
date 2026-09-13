@@ -1,7 +1,7 @@
 import Foundation
 import Combine
 
-struct BasketProduct: Codable, Identifiable, Equatable {
+struct BasketProduct: Codable, Identifiable, Equatable, Sendable {
     var id: String { url }
     let title: String
     let price: String
@@ -31,10 +31,18 @@ struct BasketProduct: Codable, Identifiable, Equatable {
         verifiedPage = page
     }
 
+    var isVerifiedOption: Bool {
+        guard let page = verifiedPage, page.hasVerifiedPrice, page.availability == .inStock,
+              let cents = page.unitPriceCents, cents > 0, cents == unitPriceCents,
+              page.productURL == url, !page.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              (try? ProductPageResolver.merchantURL(from: url)) != nil,
+              let image = page.imageURL.flatMap(URL.init(string:)), image.scheme == "https", image.host != nil else { return false }
+        return true
+    }
+
     var readyForDemoCheckout: Bool {
-        guard let page = verifiedPage else { return false }
-        return page.hasVerifiedPrice && page.imageURL != nil && page.availability != .outOfStock
-            && Date().timeIntervalSince(page.observedAt) < 15 * 60
+        guard isVerifiedOption, let page = verifiedPage else { return false }
+        return (0..<(15 * 60)).contains(Date().timeIntervalSince(page.observedAt))
     }
 
     var unitPriceCents: Int? { Self.usdCents(price) }
@@ -113,8 +121,12 @@ final class ShoppingBasketStore: ObservableObject {
             lines = saved.prefix(24).map { line in
                 var validated = line
                 validated.quantity = min(99, max(1, line.quantity))
-                validated.options = line.options.filter { $0.listingURL != nil }
+                validated.options = line.options.filter { $0.isVerifiedOption }
                 return validated
+            }.filter { $0.product != nil }
+            if lines.count != saved.count {
+                message = "Removed old suggestions that weren’t verified in-stock products."
+                save()
             }
         } catch {
             isSaved = false
@@ -136,22 +148,13 @@ final class ShoppingBasketStore: ObservableObject {
         if deduplicateQuery, let existing = lines.first(where: { $0.query.caseInsensitiveCompare(query) == .orderedSame }) { return existing.id }
         guard lines.count < 24 else { message = "Your basket has 24 different items. Remove one before adding more."; return nil }
         var seen = Set<String>()
-        let options = products.filter { $0.listingURL != nil && seen.insert($0.url).inserted }
+        let options = products.filter { $0.readyForDemoCheckout && seen.insert($0.url).inserted }
+        guard let selectedURL, options.contains(where: { $0.url == selectedURL }) else { return nil }
         let line = ShoppingBasketLine(id: UUID(), query: query, quantity: min(99, max(1, quantity)), options: options,
             selectedURL: options.contains { $0.url == selectedURL } ? selectedURL : nil, foundAt: Date())
         lines.append(line)
         save()
         return line.id
-    }
-
-    func add(_ listing: ProductSearchResult) {
-        let product = BasketProduct(listing)
-        guard product.listingURL != nil else { message = "This listing doesn’t have a valid secure link."; return }
-        if let existing = lines.first(where: { $0.selectedURL == product.url }) {
-            setQuantity(existing.quantity + 1, for: existing.id)
-        } else {
-            _ = addSearch(query: product.title, quantity: 1, products: [product], selectedURL: product.url, deduplicateQuery: false)
-        }
     }
 
     func setQuantity(_ quantity: Int, for id: UUID) {
@@ -163,7 +166,7 @@ final class ShoppingBasketStore: ObservableObject {
 
     func select(_ url: String, for id: UUID) {
         guard !isLocked else { return }
-        guard let index = lines.firstIndex(where: { $0.id == id }), lines[index].options.contains(where: { $0.url == url }) else { return }
+        guard let index = lines.firstIndex(where: { $0.id == id }), lines[index].options.contains(where: { $0.url == url && $0.readyForDemoCheckout }) else { return }
         lines[index].selectedURL = url
         save()
     }
@@ -173,6 +176,10 @@ final class ShoppingBasketStore: ObservableObject {
     func applyVerifiedPage(_ page: VerifiedProductPage, replacing originalURL: String) {
         guard !isLocked else { return }
         let verified = BasketProduct(page: page)
+        guard verified.readyForDemoCheckout else {
+            recordVerificationFailure(for: originalURL, reason: "Removed an item whose price, photo, or in-stock status could not be confirmed.")
+            return
+        }
         for index in lines.indices {
             lines[index].options = lines[index].options.map { $0.url == originalURL ? verified : $0 }
             if lines[index].selectedURL == originalURL { lines[index].selectedURL = verified.url }
@@ -184,18 +191,18 @@ final class ShoppingBasketStore: ObservableObject {
     func recordVerificationFailure(for url: String, reason: String) {
         guard !isLocked else { return }
         verificationIssues[url] = reason
-        for index in lines.indices {
-            lines[index].options = lines[index].options.map { product in
-                var updated = product
-                if product.url == url { updated.verifiedPage = nil }
-                return updated
-            }
-        }
+        for index in lines.indices { lines[index].options.removeAll { $0.url == url } }
+        lines.removeAll { $0.product == nil }
+        message = reason
         save()
     }
 
     func addVerifiedPage(_ page: VerifiedProductPage) {
         let product = BasketProduct(page: page)
+        guard product.readyForDemoCheckout else {
+            message = "Not added: the retailer must confirm a product link, photo, price, and in-stock status."
+            return
+        }
         if let existing = lines.first(where: { $0.selectedURL == product.url }) {
             applyVerifiedPage(page, replacing: product.url)
             setQuantity(existing.quantity + 1, for: existing.id)
