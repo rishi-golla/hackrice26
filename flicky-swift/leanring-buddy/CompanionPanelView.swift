@@ -6,8 +6,15 @@
 import AVFoundation
 import SwiftUI
 
+enum CompanionPanelLayout {
+    static let width: CGFloat = 400
+    static let height: CGFloat = 480
+}
+
 struct CompanionPanelView: View {
     @ObservedObject var companionManager: CompanionManager
+    var onContentHeightChange: ((CGFloat) -> Void)?
+    @State private var contentHeight = CompanionPanelLayout.height
     @State private var loginCustomerId: String = ""
     @State private var loginEmail: String = ""
     @State private var isLoggingIn = false
@@ -19,18 +26,22 @@ struct CompanionPanelView: View {
     private let mint = Color(red: 0.35, green: 0.94, blue: 0.64)
 
     var body: some View {
+        GeometryReader { viewport in
         VStack(alignment: .leading, spacing: 0) {
             panelHeader
-                .padding(.bottom, 22)
+                .padding(.bottom, 18)
+                .zIndex(1)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+            Group {
+                VStack(alignment: .leading, spacing: 14) {
                     if !companionManager.allPermissionsGranted {
                         permissionsSection
                     } else if !companionManager.isLoggedIn {
                         loginSection
                     } else {
                         financialProofSection
+                        PlaidBankConnectionRow(owner: companionManager.loginState?.customerId ?? "")
+                        InlineCompanionResponse(viewModel: companionManager.responseOverlayManager.viewModel)
                         questionSection
                         if companionManager.voiceState != .idle {
                             stopFlickyButton
@@ -39,46 +50,59 @@ struct CompanionPanelView: View {
                 }
                 .frame(maxWidth: .infinity)
             }
-            .scrollIndicators(.hidden)
-            .frame(maxHeight: 410)
 
             Rectangle().fill(Color.white.opacity(0.13)).frame(height: 1)
-                .padding(.top, 22)
-                .padding(.bottom, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
             footerSection
         }
-        .padding(18)
-        .frame(width: 480)
+        .padding(20)
+        .frame(width: CompanionPanelLayout.width, alignment: .top)
+        .fixedSize(horizontal: false, vertical: true)
+        .background {
+            GeometryReader { content in
+                Color.clear.preference(key: CompanionPanelHeightKey.self, value: content.size.height)
+            }
+        }
         .background(panelBackground)
         .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 19, style: .continuous)
-                .strokeBorder(LinearGradient(colors: [.white.opacity(0.35), .white.opacity(0.09), .white.opacity(0.22)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
+                .strokeBorder(.white.opacity(0.12), lineWidth: 1)
                 .allowsHitTesting(false)
+        }
+        .scaleEffect(min(1, viewport.size.width / CompanionPanelLayout.width, viewport.size.height / contentHeight))
+        .frame(width: viewport.size.width, height: viewport.size.height)
+        }
+        .onPreferenceChange(CompanionPanelHeightKey.self) { height in
+            guard height > 0, abs(height - contentHeight) > 0.5 else { return }
+            contentHeight = height
+            onContentHeightChange?(height)
         }
         .preferredColorScheme(.dark)
         .onReceive(NotificationCenter.default.publisher(for: .flickyPanelOpened)) { _ in
             isQuestionFocused = companionManager.isLoggedIn && companionManager.allPermissionsGranted
         }
         .onExitCommand {
-            NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
+            if isOptionsMenuPresented { isOptionsMenuPresented = false }
+            else { NotificationCenter.default.post(name: .peppapriceDismissPanel, object: nil) }
         }
     }
 
     // MARK: - Header
 
     private var panelHeader: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: 10) {
             Image("PeppaPriceLogo")
                 .resizable()
                 .interpolation(.none)
                 .scaledToFit()
-                .frame(width: 44, height: 44)
+                .frame(width: 32, height: 32)
                 .clipShape(RoundedRectangle(cornerRadius: 9))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text("PeppaPrice")
-                    .font(.system(size: 21, weight: .semibold))
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white)
             }
             Spacer(minLength: 8)
@@ -89,8 +113,7 @@ struct CompanionPanelView: View {
     }
 
     private var optionsButton: some View {
-        ZStack(alignment: .topTrailing) {
-            Button {
+        Button {
                 withAnimation(.easeOut(duration: 0.16)) {
                     isOptionsMenuPresented.toggle()
                 }
@@ -109,10 +132,11 @@ struct CompanionPanelView: View {
             .accessibilityHint("Show PeppaPrice actions")
             .pointerCursor()
 
+            .overlay(alignment: .topTrailing) {
             if isOptionsMenuPresented {
                 VStack(alignment: .leading, spacing: 4) {
-                    optionsMenuButton(companionManager.isClickyCursorEnabled ? "Hide pet" : "Show pet", icon: "cursorarrow.motionlines") {
-                        companionManager.setClickyCursorEnabled(!companionManager.isClickyCursorEnabled)
+                    optionsMenuButton(companionManager.isPeppaPriceCursorEnabled ? "Hide pet" : "Show pet", icon: "cursorarrow.motionlines") {
+                        companionManager.setPeppaPriceCursorEnabled(!companionManager.isPeppaPriceCursorEnabled)
                         isOptionsMenuPresented = false
                     }
                     optionsMenuButton("Refresh account", icon: "arrow.clockwise", isDisabled: !companionManager.isLoggedIn) {
@@ -121,9 +145,13 @@ struct CompanionPanelView: View {
                     }
                     optionsMenuButton("Dismiss panel", icon: "xmark") {
                         isOptionsMenuPresented = false
-                        NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
+                        NotificationCenter.default.post(name: .peppapriceDismissPanel, object: nil)
                     }
-                    optionsMenuButton("Credit simulation", icon: "creditcard") {
+                    optionsMenuButton("Subscriptions", icon: "repeat") {
+                        isOptionsMenuPresented = false
+                        companionManager.showSubscriptions()
+                    }
+                    optionsMenuButton("Credit options", icon: "creditcard") {
                         isOptionsMenuPresented = false
                         companionManager.showCreditSimulation()
                     }
@@ -142,7 +170,7 @@ struct CompanionPanelView: View {
                     }
                 }
                 .padding(8)
-                .frame(width: 220)
+                .frame(width: 204)
                 .background {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(Color(red: 0.055, green: 0.06, blue: 0.07))
@@ -152,7 +180,8 @@ struct CompanionPanelView: View {
                         }
                         .shadow(color: .black.opacity(0.45), radius: 18, y: 10)
                 }
-                .offset(x: -90, y: 44)
+                .fixedSize(horizontal: false, vertical: true)
+                .offset(y: 44)
                 .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .topTrailing)))
                 .zIndex(20)
             }
@@ -303,42 +332,19 @@ struct CompanionPanelView: View {
     // MARK: - Account and balance
 
     private var financialProofSection: some View {
-        VStack(spacing: 22) {
-            if let state = companionManager.loginState {
-                HStack(spacing: 12) {
-                    HStack(spacing: 12) {
-                        CapitalOneMark().fill(Color(red: 0.91, green: 0.16, blue: 0.19))
-                            .frame(width: 32, height: 24)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Capital One").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                            Text(companionManager.financialInsights == nil ? "Not verified" : "Nessie sandbox").font(.system(size: 12)).foregroundStyle(secondaryText)
-                        }
-                        Spacer(minLength: 0)
-                        if companionManager.financialInsights != nil { connectionCheck }
-                    }
-                    .frame(width: 168)
-                    .padding(12)
-                    .background(tileBackground())
-                    .help(state.maskedCardNumber)
-
-                    HStack(spacing: 10) {
-                        Image(systemName: "person.crop.circle")
-                            .font(.system(size: 20))
-                            .foregroundStyle(secondaryText)
-                        Text(companionManager.nessieCustomer?.name ?? "Customer not verified")
-                            .font(.system(size: 12, weight: .medium))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                            .truncationMode(.middle)
-                            .foregroundStyle(.white)
-                        Spacer(minLength: 0)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 34)
-                    .padding(12)
-                    .background(tileBackground())
-                    .help(companionManager.nessieCustomer.map { "Nessie customer: " + $0.id } ?? "Refresh to retrieve the customer from Nessie")
-                }
+        VStack(spacing: 12) {
+            if companionManager.loginState != nil {
+                HStack(spacing: 10) {
+                    CapitalOneMark().fill(Color(red: 0.94, green: 0.28, blue: 0.32)).frame(width: 24, height: 18)
+                    Text("Capital One").font(.system(size: 13, weight: .medium))
+                    Spacer()
+                    Text(companionManager.nessieCustomer?.name ?? "Account")
+                        .font(.system(size: 12)).foregroundStyle(secondaryText).lineLimit(1)
+                    Button { companionManager.nessieConnectionPanel.show() } label: {
+                        Image(systemName: "info.circle").font(.system(size: 14)).foregroundStyle(secondaryText)
+                    }.buttonStyle(.plain).pointerCursor().accessibilityLabel("Connection details")
+                        .help("View account source and connection details")
+                }.padding(.vertical, 8)
             }
 
             if let customer = companionManager.nessieCustomer {
@@ -376,85 +382,52 @@ struct CompanionPanelView: View {
                         .font(.system(size: 11)).foregroundStyle(secondaryText)
                 }
             }
-            Button { companionManager.nessieConnectionPanel.show() } label: {
-                HStack(spacing: 7) {
-                    Image(systemName: "network")
-                    Text("API connection details")
-                    Spacer()
-                    if let lastRequest = companionManager.nessieRequests.last {
-                        Text(lastRequest.fetchedAt.formatted(date: .omitted, time: .standard)).monospacedDigit()
-                    }
-                    Image(systemName: "arrow.up.right")
-                }.font(.system(size: 11, weight: .medium)).foregroundStyle(secondaryText)
-            }.buttonStyle(.plain).pointerCursor()
-
             if let insights = companionManager.financialInsights {
-                VStack(spacing: 3) {
+                VStack(spacing: 10) {
                     Text("Balance")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(secondaryText)
                     Text(insights.formattedBalance)
-                        .font(.system(size: 44, weight: .semibold))
+                        .font(.system(size: 34, weight: .medium))
                         .tracking(-1.2)
                         .monospacedDigit()
                         .minimumScaleFactor(0.6)
                         .lineLimit(1)
                         .foregroundStyle(.white)
                     HStack(spacing: 10) {
-                        Image(systemName: "checkmark.shield")
-                            .font(.system(size: 19))
-                            .foregroundStyle(safeToSpendColor(cents: insights.safeToSpendCents))
                         Text("Safe to Spend")
                             .font(.system(size: 13))
                             .foregroundStyle(secondaryText)
                         Text(insights.formattedSafeToSpend)
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(safeToSpendColor(cents: insights.safeToSpendCents))
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
                     }
-                    .padding(.top, 9)
+                    .padding(.top, 2)
                 }
-                .padding(.top, 2)
+                .padding(.vertical, 6)
                 .frame(maxWidth: .infinity)
 
                 let bills = insights.recurringBills.isEmpty ? insights.upcomingBills : insights.recurringBills
                 if !bills.isEmpty {
-                    HStack(spacing: 10) {
-                        ForEach(bills.prefix(3)) { bill in
-                            Button {
-                                companionManager.research.showMetrics(["bills"], snapshot: companionManager.financialInsights)
-                            } label: {
-                                HStack(spacing: 8) {
-                                    merchantIcon(bill.label)
-                                    Text(bill.label)
-                                        .font(.system(size: 12, weight: .medium))
-                                        .lineLimit(1)
-                                }
-                                .padding(.horizontal, 13)
-                                .frame(height: 38)
-                            }
-                            .buttonStyle(FlickyGlassButtonStyle())
-                            .pointerCursor()
-                            .help("\(bill.label): \(bill.formattedAmount), due \(bill.date)")
-                        }
-                        if bills.count > 3 {
-                            Button { companionManager.research.showMetrics(["bills"], snapshot: companionManager.financialInsights) } label: {
-                                Text("+\(bills.count - 3)")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .frame(width: 46, height: 38)
-                            }
-                                .buttonStyle(FlickyGlassButtonStyle())
-                                .pointerCursor()
-                                .accessibilityLabel("View all \(bills.count) bills")
-                        }
-                        Spacer(minLength: 0)
-                    }
+                    Button {
+                        companionManager.research.setEvidenceSuppressed(false)
+                        companionManager.research.showMetrics(["bills"], snapshot: companionManager.financialInsights)
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "calendar").font(.system(size: 15))
+                            Text("Upcoming bills").font(.system(size: 13))
+                            Spacer()
+                            Text("\(bills.count)").font(.system(size: 13)).monospacedDigit()
+                            Image(systemName: "chevron.right").font(.system(size: 10))
+                        }.foregroundStyle(secondaryText).padding(.vertical, 6)
+                    }.buttonStyle(.plain).pointerCursor()
                 }
             }
             if companionManager.isLoadingFinancials {
                 ProgressView("Refreshing account…").font(.system(size: 12))
             }
             if let error = companionManager.financialLoadError {
-                Text(error).font(.system(size: 12)).foregroundStyle(DS.Colors.warning)
+                Text(error).font(.system(size: 12)).foregroundStyle(secondaryText).lineLimit(2).help(error)
             }
         }
     }
@@ -483,24 +456,21 @@ struct CompanionPanelView: View {
     }
 
     private var questionSection: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 10) {
             HStack(spacing: 14) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 22))
-                    .foregroundStyle(Color(red: 0.72, green: 0.77, blue: 0.91))
                 TextField("Ask PeppaPrice anything…", text: $question)
                     .focused($isQuestionFocused)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 15))
+                    .font(.system(size: 13))
                     .foregroundStyle(.white)
                     .onSubmit(submitQuestion)
                     .accessibilityLabel("Ask PeppaPrice anything")
                 Button(action: submitQuestion) {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 20, weight: .medium))
-                        .foregroundStyle(.white.opacity(question.isEmpty ? 0.6 : 1))
+                        .foregroundStyle(question.isEmpty ? mint.opacity(0.7) : Color.black.opacity(0.85))
                         .frame(width: 34, height: 34)
-                        .background(Circle().fill(Color(red: 0.43, green: 0.47, blue: 0.57).opacity(question.isEmpty ? 0.65 : 1)))
+                        .background(Circle().fill(mint.opacity(question.isEmpty ? 0.14 : 0.85)))
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
@@ -508,7 +478,7 @@ struct CompanionPanelView: View {
                 .accessibilityLabel("Send question")
             }
             .padding(.horizontal, 16)
-            .frame(height: 60)
+            .frame(height: 44)
             .background(tileBackground(emphasized: true))
 
             HStack(spacing: 12) {
@@ -521,16 +491,17 @@ struct CompanionPanelView: View {
     private func suggestionButton(_ title: String, icon: String) -> some View {
         Button { companionManager.submitPanelQuestion(title) } label: {
             HStack(spacing: 8) {
-                Image(systemName: icon).font(.system(size: 19))
+                Image(systemName: icon).font(.system(size: 13)).foregroundStyle(mint.opacity(0.8))
                 Text(title).font(.system(size: 12)).lineLimit(1).minimumScaleFactor(0.85)
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right").font(.system(size: 10, weight: .medium))
             }
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity)
-            .frame(height: 46)
+            .frame(height: 36)
         }
-        .buttonStyle(FlickyGlassButtonStyle())
+        .buttonStyle(.plain)
+        .foregroundStyle(secondaryText)
         .pointerCursor()
     }
 
@@ -696,13 +667,7 @@ struct CompanionPanelView: View {
     // MARK: - Status Helpers
 
     private var panelBackground: some View {
-        ZStack {
-            Rectangle().fill(.ultraThinMaterial)
-            LinearGradient(
-                colors: [Color(red: 0.14, green: 0.15, blue: 0.19).opacity(0.88), Color(red: 0.065, green: 0.07, blue: 0.085).opacity(0.94)],
-                startPoint: .topLeading, endPoint: .bottomTrailing
-            )
-        }
+        Color(red: 0.075, green: 0.078, blue: 0.085)
     }
 
     private var statusDotColor: Color {
@@ -763,4 +728,33 @@ private struct CapitalOneMark: Shape {
         path.closeSubpath()
         return path
     }
+}
+
+
+/// Reserves response space in the layout instead of covering account controls.
+private struct InlineCompanionResponse: View {
+    @ObservedObject var viewModel: CompanionResponseOverlayViewModel
+
+    var body: some View {
+        if viewModel.isShowingResponse {
+            ScrollView(.vertical) {
+                Text(viewModel.streamingResponseText.isEmpty ? "Working on your question…" : viewModel.streamingResponseText)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .lineSpacing(3)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .scrollIndicators(.hidden)
+            .frame(height: 72)
+            .padding(12)
+            .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+}
+
+private struct CompanionPanelHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }

@@ -194,11 +194,14 @@ struct FinancialInsights {
             }
         }
 
+        lines.append("- Sources: Nessie account balance, bills, deposits and withdrawals; category totals use purchases joined to merchants when available. Observed at the timestamp above; this is a single selected-account snapshot, not all the customer’s assets or debts.")
+        lines.append("- Trend coverage: last-30-day aggregates only. No prior comparable period is supplied here; do not claim spending is rising/falling, infer salary from deposits, or infer a credit score or approval.")
         return lines.joined(separator: "\n")
     }
 
     private func formattedTime(_ date: Date) -> String {
         let formatter = DateFormatter()
+        formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: date)
     }

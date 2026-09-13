@@ -4,7 +4,7 @@
 
 **Goal:** Integrate teammate 3's grounded conversation and voice-to-voice behavior into the existing Electron service and cursor UI on remote `main`.
 
-**Architecture:** Preserve the existing `createConversationManager`, Fastify service, preload bridge, and renderer contracts. Add ElevenLabs Scribe v2 as the service-owned transcription provider, keep server-owned reply IDs for TTS, wire providers from environment configuration, and add an explicit hold-to-talk MediaRecorder flow with typed fallback in the existing renderer. The native macOS Clicky target remains outside this Electron integration because it has a separate Swift voice stack and cannot be built on Windows.
+**Architecture:** Preserve the existing `createConversationManager`, Fastify service, preload bridge, and renderer contracts. Add ElevenLabs Scribe v2 as the service-owned transcription provider, keep server-owned reply IDs for TTS, wire providers from environment configuration, and add an explicit hold-to-talk MediaRecorder flow with typed fallback in the existing renderer. The native macOS PeppaPrice target remains outside this Electron integration because it has a separate Swift voice stack and cannot be built on Windows.
 
 **Tech Stack:** TypeScript, Fastify, Zod, Electron, React, Vitest, ElevenLabs HTTP API.
 

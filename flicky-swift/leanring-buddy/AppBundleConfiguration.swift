@@ -9,6 +9,13 @@ import Foundation
 
 enum AppBundleConfiguration {
     static func stringValue(forKey key: String) -> String? {
+        if key == "FLICKY_WORKER_URL",
+           let supportDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+           let data = try? Data(contentsOf: supportDirectory.appendingPathComponent("Flicky/runtime.plist")),
+           let configuration = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: String],
+           let value = configuration[key]?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+            return value
+        }
         // Local Nessie credentials stay outside the repository and the distributed app bundle.
         if key.hasPrefix("FLICKY_NESSIE_"),
            let supportDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,

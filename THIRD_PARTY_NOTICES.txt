@@ -1,3 +1,6 @@
+Third-party native desktop foundation
+Applies to inherited native infrastructure in flicky-swift/ and macos/.
+
 MIT License
 
 Copyright (c) 2026 Farza

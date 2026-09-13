@@ -2,6 +2,72 @@ import Foundation
 import Combine
 import CryptoKit
 
+struct CreditBorrowingRequest: Equatable {
+    var principalCents: Int?
+    var months: Int?
+    var annualRatePercent: Double?
+
+    var summary: String {
+        [principalCents.map(CreditSimulationEngine.money), months.map { "\($0) months" },
+         annualRatePercent.map { "\($0.formatted())% requested APR" }]
+            .compactMap { $0 }.joined(separator: " · ")
+    }
+
+    static func parse(_ question: String) -> Self? {
+        let text = question.lowercased().replacingOccurrences(of: "’", with: "'")
+        func contains(_ pattern: String) -> Bool { text.range(of: pattern, options: .regularExpression) != nil }
+        guard !contains(#"\b(don't|do not|never)\b.*\b(open|show|borrow|loan|credit)\b"#),
+              !contains(#"\b(open|visit|navigate|go to)\b.*\b(website|site|https|capital one|sofi|wells fargo)\b"#) else { return nil }
+        let numberWords = "zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand"
+        let number = #"(?:[0-9][0-9,]*(?:\.[0-9]{1,2})?\s*k?\b|(?:"# + numberWords + #")(?:[\s-]+(?:and|"# + numberWords + #"))*)"#
+        func match(_ pattern: String) -> [String]? {
+            guard let expression = try? NSRegularExpression(pattern: pattern),
+                  let found = expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) else { return nil }
+            return (1..<found.numberOfRanges).map { index in
+                Range(found.range(at: index), in: text).map { String(text[$0]) } ?? ""
+            }
+        }
+        func value(_ raw: String) -> Double? {
+            let cleaned = raw.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: "")
+            if cleaned.hasSuffix("k"), let numeric = Double(cleaned.dropLast().trimmingCharacters(in: .whitespaces)) { return numeric * 1000 }
+            if let numeric = Double(cleaned) { return numeric }
+            let smallWords = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+                              "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"]
+            let tens = ["twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90]
+            var total = 0
+            var group = 0
+            for word in cleaned.split(whereSeparator: { $0 == " " || $0 == "-" }).map(String.init) {
+                if word == "and" { continue }
+                if let small = smallWords.firstIndex(of: word) { group += small }
+                else if let ten = tens[word] { group += ten }
+                else if word == "hundred" { group = max(1, group) * 100 }
+                else if word == "thousand" { total += max(1, group) * 1000; group = 0 }
+                else { return nil }
+            }
+            return Double(total + group)
+        }
+        let borrowingIntent = contains(#"\b(borrow|borrowing|loan|loans|financing)\b|\bcredit\s+(options|comparison|simulation)\b"#)
+        let nonMoneyUnit = #"(\s*(?:months?|years?|percent|%))?"#
+        let amountMatch = match(#"(?:\$\s*|\b(?:need|borrow|borrowing)\s+(?:(?:a|personal|loan|of|for|about|around)\s+)*)("# + number + #")(?![\w])"# + nonMoneyUnit)
+        let loanAmountMatch = match(#"\bloan\s+(?:of\s+|for\s+)?\$?\s*("# + number + #")"# + nonMoneyUnit)
+        let amount = (amountMatch ?? loanAmountMatch).flatMap { $0[1].isEmpty ? value($0[0]) : nil }
+        let needsMoney = contains(#"\b(?:i\s+|we\s+)?need\s+(?:about\s+|around\s+)?\$?\s*"# + number)
+        guard borrowingIntent || (needsMoney && amount != nil) else { return nil }
+        // A stated price or income on its own must not redirect ordinary shopping/account questions.
+        if !borrowingIntent && contains(#"\b(salary|income|balance|save|saving|spend|budget|cost|price|laptop|monitor|keyboard)\b"#) { return nil }
+        var request = Self()
+        if let amount, amount.isFinite, (1...100_000).contains(amount) { request.principalCents = Int((amount * 100).rounded()) }
+        if let term = match(#"("# + number + #")\s*[- ]?\s*(months?|years?)\b"#),
+           let count = value(term[0]) {
+            let months = count * (term[1].hasPrefix("year") ? 12 : 1)
+            if months.rounded() == months, (1...120).contains(months) { request.months = Int(months) }
+        }
+        if let rate = match(#"("# + number + #")\s*(?:%|percent)"#).flatMap({ value($0[0]) }),
+           rate.isFinite, (0...100).contains(rate) { request.annualRatePercent = rate }
+        return request
+    }
+}
+
 struct CreditSimulationInput: Codable, Equatable {
     var score: Int
     var principalCents: Int
@@ -152,6 +218,7 @@ enum CreditSimulationEngine {
 
 @MainActor
 final class CreditSimulationStore: ObservableObject {
+    @Published var borrowingRequest: CreditBorrowingRequest?
     @Published private(set) var runs: [CreditSimulationRun] = []
     @Published private(set) var savedRunIDs: Set<UUID> = []
     @Published private(set) var result: CreditSimulationRun?
@@ -167,6 +234,7 @@ final class CreditSimulationStore: ObservableObject {
 
     func updateContext(accountKey: String?, snapshot: FinancialInsights?) {
         if self.accountKey != accountKey {
+            borrowingRequest = nil
             self.accountKey = accountKey
             runs = []
             savedRunIDs = []
@@ -178,6 +246,7 @@ final class CreditSimulationStore: ObservableObject {
     }
 
     func resetSession() {
+        borrowingRequest = nil
         accountKey = nil; nessie = nil; runs = []; savedRunIDs = []; result = nil; message = nil
     }
 

@@ -39,6 +39,18 @@ struct ResearchLifecycleCheck {
         }
         let api = SpecialistAPI(proxyURL: "http://127.0.0.1:1/chat")
         let research = FlickyResearch()
+        research.showMetrics(["bills"], snapshot: nil)
+        research.setEvidenceSuppressed(true)
+        precondition(research.evidencePanel?.isVisible != true)
+        research.showMetrics(["bills"], snapshot: nil)
+        precondition(research.metricKeys.isEmpty && research.evidencePanel?.isVisible != true)
+        let subscriptionFindings = await research.investigate(question: "Show my subscriptions and upcoming renewals", images: [], context: "", snapshot: nil, api: api)
+        precondition(subscriptionFindings.isEmpty && research.specialists.isEmpty && !research.isPlanning)
+        research.setEvidenceSuppressed(false)
+        research.showMetrics(["balance"], snapshot: nil)
+        precondition(research.evidencePanel?.isVisible == true)
+        research.reset()
+
         let findings = await research.investigate(question: "Compare options", images: [], context: "No data", snapshot: nil, api: api)
         precondition(research.specialists.count == 2, "Only unique allowed specialists launch")
         let peak = await api.counter.peak

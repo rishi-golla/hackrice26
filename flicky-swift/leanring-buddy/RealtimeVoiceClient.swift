@@ -58,13 +58,13 @@ final class RealtimeVoiceClient {
     private var inputText: String?
     private var transcript = ""
     private var reply = ""
-    private var toolCallCount = 0
+    private var researchQueue = RealtimeResearchQueue()
 
     init(configuration: FlickyRealtimeConfiguration) {
         self.configuration = configuration
         let sessionConfiguration = URLSessionConfiguration.ephemeral
         sessionConfiguration.timeoutIntervalForRequest = 20
-        sessionConfiguration.timeoutIntervalForResource = 120
+        sessionConfiguration.timeoutIntervalForResource = 300
         session = URLSession(configuration: sessionConfiguration)
         playback.attach(player)
         playback.connect(player, to: playback.mainMixerNode, format: playbackFormat)
@@ -119,7 +119,7 @@ final class RealtimeVoiceClient {
             }
         }
         deadlineTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(120))
+            try? await Task.sleep(for: .seconds(300))
             guard !Task.isCancelled, let self, self.generation == requestGeneration else { return }
             self.fail("Voice timed out. Hold Control + Option to try again.")
         }
@@ -163,6 +163,7 @@ final class RealtimeVoiceClient {
         receiveTask?.cancel()
         sendTask?.cancel()
         toolTask?.cancel()
+        toolTask = nil
         deadlineTask?.cancel()
         recordingLimitTask?.cancel()
         socket?.cancel(with: .normalClosure, reason: nil)
@@ -180,7 +181,7 @@ final class RealtimeVoiceClient {
         inputText = nil
         transcript = ""
         reply = ""
-        toolCallCount = 0
+        researchQueue = RealtimeResearchQueue()
         onLevel?(0)
     }
 
@@ -255,7 +256,7 @@ final class RealtimeVoiceClient {
                 "instructions": context.instructions,
                 "tools": [[
                     "type": "function", "name": "research_financial_question",
-                    "description": "Open banking, credit-card, lender, brokerage, and other financial websites in the user's browser, or research financial and shopping questions. Call this when asked to open or visit a site, passing the destination and goal; public navigation needs no connected account. It can interpret supplied screenshots, analyze available account evidence, search merchandise, and open the credit simulator when explicitly requested. Opening a URL does not read the page or submit forms. Not a live stock quote feed.",
+                    "description": "Immediately open credit comparison when the user asks to borrow money or needs an amount such as $8,000 for 36 months or $5,000: pass their full request, including amount, term, and requested rate. Also review subscriptions, open financial websites, or research financial/shopping questions. Call this for site navigation with destination and goal; no connected account is needed. Can interpret screenshots, analyze account evidence, search merchandise, and open simulations. Opening a URL does not read it or submit forms. Credit cards are published examples, not personalized offers. Not a live stock quote feed.",
                     "parameters": ["type": "object", "properties": ["question": ["type": "string"]],
                                    "required": ["question"], "additionalProperties": false],
                 ]],
@@ -357,31 +358,20 @@ final class RealtimeVoiceClient {
             try play(data)
         case "response.created": responseFinished = false
         case "response.function_call_arguments.done":
-            guard let callID = event["call_id"] as? String,
-                  let arguments = event["arguments"] as? String,
-                  let body = try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any],
-                  let question = body["question"] as? String else { throw voiceError("Invalid research request.") }
-            guard event["name"] as? String == "research_financial_question", toolCallCount < 2, toolTask == nil else {
-                throw voiceError("The research limit for this voice turn was reached. Ask a follow-up to continue.")
-            }
-            toolCallCount += 1
-            let requestGeneration = generation
-            onPhase?(.processing)
-            toolTask = Task { [weak self] in
-                guard let self else { return }
-                let answer = await self.onResearch?(question) ?? "Research is unavailable. Explain the limitation honestly."
-                guard !Task.isCancelled, self.generation == requestGeneration else { return }
-                self.enqueue(["type": "conversation.item.create", "item": ["type": "function_call_output", "call_id": callID, "output": answer]])
-                self.enqueue(["type": "response.create"])
-                self.toolTask = nil
-            }
+            // Wait for response.done: all calls must be registered before continuing.
+            try registerResearchCall(event)
         case "response.done":
             let response = event["response"] as? [String: Any] ?? [:]
             guard response["status"] as? String == "completed" else {
                 throw voiceError("OpenAI couldn't finish that voice response. Check API credit and try again.")
             }
             let output = response["output"] as? [[String: Any]] ?? []
-            if !output.contains(where: { $0["type"] as? String == "function_call" }) {
+            let calls = output.filter { $0["type"] as? String == "function_call" }
+            for call in calls { try registerResearchCall(call) }
+            if !calls.isEmpty || researchQueue.hasWork {
+                researchQueue.responseEnded()
+                drainResearch()
+            } else {
                 responseFinished = true
                 completeIfPlayed()
             }
@@ -398,6 +388,46 @@ final class RealtimeVoiceClient {
             }
             throw voiceError("Realtime voice failed (\(code)). Try again.")
         default: break
+        }
+    }
+
+    private func registerResearchCall(_ event: [String: Any]) throws {
+        guard let callID = event["call_id"] as? String, !callID.isEmpty else {
+            throw voiceError("The voice service returned a research request without an identifier.")
+        }
+        researchQueue.append(id: callID, name: event["name"] as? String,
+                             arguments: event["arguments"] as? String)
+    }
+
+    private func drainResearch() {
+        guard toolTask == nil else { return }
+        let requestGeneration = generation
+        onPhase?(.processing)
+        toolTask = Task { [weak self] in
+            guard let self else { return }
+            while let call = self.researchQueue.next() {
+                let answer: String
+                if let immediateOutput = call.immediateOutput {
+                    answer = immediateOutput
+                } else {
+                    answer = await self.onResearch?(call.question ?? "")
+                        ?? "Research is unavailable. Answer from available evidence and explain what is unverified."
+                }
+                guard !Task.isCancelled, self.generation == requestGeneration else { return }
+                self.enqueue(["type": "conversation.item.create", "item": [
+                    "type": "function_call_output", "call_id": call.id, "output": answer
+                ]])
+                self.researchQueue.complete(id: call.id)
+            }
+            self.toolTask = nil
+            if let finalAnswer = self.researchQueue.takeContinuation() {
+                // enqueue preserves ordering: every result precedes this single response.
+                var event: [String: Any] = ["type": "response.create"]
+                if finalAnswer {
+                    event["response"] = ["tool_choice": "none"]
+                }
+                self.enqueue(event)
+            }
         }
     }
 

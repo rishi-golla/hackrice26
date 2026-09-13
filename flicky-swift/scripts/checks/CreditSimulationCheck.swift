@@ -5,6 +5,46 @@ import SwiftUI
 @main
 struct CreditSimulationCheck {
     @MainActor static func main() async throws {
+        precondition(TopicWindowIntent.parse("What subscriptions do I have?") == [.subscriptions])
+        precondition(TopicWindowIntent.parse("When does Netflix renew?") == [.subscriptions])
+        precondition(TopicWindowIntent.parse("How can I improve my credit score?") == [.credit])
+        precondition(TopicWindowIntent.parse("What is my account balance?") == [.account])
+        precondition(TopicWindowIntent.parse("Put milk and bread in my shopping cart") == [.shopping])
+        precondition(TopicWindowIntent.parse("Show my account and subscriptions") == [.account, .subscriptions])
+        precondition(TopicWindowIntent.parse("Don't open the credit window").isEmpty)
+        precondition(TopicWindowIntent.parse("Open SoFi's website for loans").isEmpty)
+        precondition(TopicWindowIntent.parse("Who won the game?").isEmpty)
+        precondition(CreditBankCard.banks.count == 4)
+        precondition(Set(CreditBankCard.banks.map(\.id)).count == 4)
+        for bank in CreditBankCard.banks {
+            precondition(bank.exampleAPR(scoreText: "850", requestedRate: nil) == bank.minimumAPR)
+            precondition(bank.exampleAPR(scoreText: "300", requestedRate: nil) == bank.maximumAPR)
+            precondition(bank.exampleAPR(scoreText: "720", requestedRate: nil)! > bank.exampleAPR(scoreText: "800", requestedRate: nil)!)
+            for invalid in ["", "299", "851", "720.0", "abc"] {
+                precondition(bank.exampleAPR(scoreText: invalid, requestedRate: nil) == nil)
+            }
+            precondition(bank.exampleAPR(scoreText: "720", requestedRate: 8) == 8)
+        }
+        let borrowing = CreditBorrowingRequest.parse("I need $8,000 for 36 months at 8 percent")
+        precondition(borrowing == CreditBorrowingRequest(principalCents: 800_000, months: 36, annualRatePercent: 8))
+        precondition(CreditBorrowingRequest.parse("I need eight thousand for thirty-six months")?.principalCents == 800_000)
+        precondition(CreditBorrowingRequest.parse("I need eight thousand for thirty-six months")?.months == 36)
+        precondition(CreditBorrowingRequest.parse("I need five thousand")?.principalCents == 500_000)
+        precondition(CreditBorrowingRequest.parse("I need 5k for 3 years at 7.5%") ==
+                     CreditBorrowingRequest(principalCents: 500_000, months: 36, annualRatePercent: 7.5))
+        precondition(CreditBorrowingRequest.parse("Show me credit options") != nil)
+        precondition(CreditBorrowingRequest.parse("A loan for 36 months") == CreditBorrowingRequest(months: 36))
+        for question in ["My balance is $5,000", "Can I afford a $5,000 laptop?", "I need a laptop for $5,000",
+                         "I need to save $5,000", "Don't open credit options", "Open SoFi's website for a loan"] {
+            precondition(CreditBorrowingRequest.parse(question) == nil, question)
+        }
+        let requestStore = CreditSimulationStore()
+        requestStore.borrowingRequest = borrowing
+        requestStore.updateContext(accountKey: "new-account", snapshot: nil)
+        precondition(requestStore.borrowingRequest == nil)
+        requestStore.borrowingRequest = borrowing
+        requestStore.resetSession()
+        precondition(requestStore.borrowingRequest == nil)
         let input = try CreditSimulationInput.parse(score: "720", amount: "10000.01", income: "5000", debt: "250.50", wellsFargoCustomer: true)
         precondition(input.principalCents == 1_000_001 && input.monthlyDebtCents == 25_050)
         for score in ["299", "851", "720.5", "", "123-45-6789", "7e2"] {
@@ -79,18 +119,41 @@ struct CreditSimulationCheck {
         corrupted.clearHistory()
         precondition(corrupted.message == nil)
         print("PASS: input boundaries, independent amortization example, zero-rate rounding, totals, score monotonicity, lender conditions, stale evidence, selection, opt-in persistence, permissions, account isolation, history limit and corrupt-file recovery")
+        precondition(CreditDemoEntry.accepts("000-12-3456"))
+        precondition(CreditDemoEntry.accepts("000123456"))
+        for invalid in ["", "123-45-6789", "000-12-345", "000-12-34567", "000-ab-cdef"] {
+            precondition(!CreditDemoEntry.accepts(invalid))
+        }
+        print("PASS: demo entry accepts only dummy numbers beginning with 000")
         if CommandLine.arguments.contains("--render") {
             _ = NSApplication.shared
             let outputDirectory = URL(fileURLWithPath: CommandLine.arguments.last!)
             try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
-            for (name, size, populated) in [("credit-empty", NSSize(width: 780, height: 820), false),
-                ("credit-results", NSSize(width: 780, height: 820), true),
-                ("credit-compact", NSSize(width: 640, height: 650), true)] {
+            let assets = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("leanring-buddy/Assets.xcassets")
+            for bank in CreditBankCard.banks {
+                let folder = assets.appendingPathComponent(bank.logo + ".imageset")
+                let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+                guard let file = files.first(where: { ["svg", "png"].contains($0.pathExtension) }),
+                      let logo = NSImage(contentsOf: file) else { preconditionFailure("Missing logo: \(bank.logo)") }
+                logo.setName(NSImage.Name(bank.logo))
+            }
+            for (name, size, populated, bank) in [("credit-empty", NSSize(width: 560, height: 650), false, "sofi"),
+                ("credit-results", NSSize(width: 560, height: 650), true, "sofi"),
+                ("credit-amex", NSSize(width: 560, height: 650), true, "amex"),
+                ("credit-usbank", NSSize(width: 560, height: 650), true, "usbank"),
+                ("credit-amex-compact", NSSize(width: 500, height: 600), true, "amex"),
+                ("credit-usbank-compact", NSSize(width: 500, height: 600), true, "usbank"),
+                ("credit-sofi-compact", NSSize(width: 500, height: 600), true, "sofi"),
+                ("credit-wells", NSSize(width: 560, height: 650), true, "wells"),
+                ("credit-compact", NSSize(width: 500, height: 600), true, "wells"),
+                ("credit-request", NSSize(width: 560, height: 650), true, "sofi"),
+                ("credit-request-compact", NSSize(width: 500, height: 600), true, "wells")] {
                 let previewStore = CreditSimulationStore(directory: directory.appendingPathComponent(name))
                 previewStore.updateContext(accountKey: "ui-fixture", snapshot: fixture)
                 if populated { previewStore.run(input: input, save: false) }
+                if name.hasPrefix("credit-request") { previewStore.borrowingRequest = borrowing }
                 let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
-                let hosting = NSHostingView(rootView: CreditSimulationView(store: previewStore, onRefresh: {}, onSources: {}, onClose: {}))
+                let hosting = NSHostingView(rootView: CreditSimulationView(store: previewStore, onRefresh: {}, onSources: {}, onClose: {}, initiallyShowsBanks: populated, initiallySelectedBank: bank))
                 hosting.sizingOptions = []
                 window.contentView = hosting
                 window.orderFront(nil)

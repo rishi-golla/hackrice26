@@ -42,6 +42,7 @@ final class ShoppingCheckoutCoordinator: ObservableObject {
     @Published private(set) var isBusy = false
     @Published var errorMessage: String?
     @Published private(set) var status = "Review payment"
+    var onWillOpenProductLink: (() -> Void)?
     var currentIdentity: (() -> (customerId: String, accountId: String)?)?
     var onRefreshBalance: (() async -> Void)?
     private var ledger: DemoCheckoutLedger?
@@ -203,6 +204,7 @@ final class ShoppingCheckoutCoordinator: ObservableObject {
                     // Stagger the visible demo dispatch so every item can be followed.
                     if animateTasks { try? await Task.sleep(for: .milliseconds(index * 350)) }
                     update(task.id, stage: .opening)
+                    onWillOpenProductLink?()
                     guard let url = URL(string: task.url), url.scheme == "https", openProductLink(url) else {
                         update(task.id, stage: .failed)
                         return

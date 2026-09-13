@@ -324,9 +324,13 @@ struct BlueCursorView: View {
             }
         }
         .onDisappear {
+            ScreenControlGlow.shared.setActive(false, source: "cursor-navigation-\(screenFrame)")
             timer?.invalidate()
             navigationAnimationTimer?.invalidate()
             companionManager.tearDownOnboardingVideo()
+        }
+        .onChange(of: buddyNavigationMode) { _, mode in
+            ScreenControlGlow.shared.setActive(mode == .navigatingToTarget, source: "cursor-navigation-\(screenFrame)")
         }
         .onChange(of: companionManager.detectedElementScreenLocation) { newLocation in
             // When a UI element location is detected, navigate the buddy to

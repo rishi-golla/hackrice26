@@ -14,7 +14,7 @@
 
 ## Dependencies and handoff
 
-Start from an empty repository. Do not clone Clicky. Part 2 consumes `Snapshot`, `Forecast`, `Frame` and bridge contracts. Part 3 consumes `Snapshot`, `Forecast`, `HypotheticalPurchase`, `PurchaseRef` and the authenticated analysis route. Part 4 consumes the service/provider interfaces and the build scripts. Commit only files listed below; do not edit README.
+Start from an empty repository. Use the project’s existing source. Part 2 consumes `Snapshot`, `Forecast`, `Frame` and bridge contracts. Part 3 consumes `Snapshot`, `Forecast`, `HypotheticalPurchase`, `PurchaseRef` and the authenticated analysis route. Part 4 consumes the service/provider interfaces and the build scripts. Commit only files listed below; do not edit README.
 
 ## Global constraints
 

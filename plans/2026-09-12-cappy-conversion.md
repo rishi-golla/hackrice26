@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task after authorization. Steps use checkbox syntax for tracking.
 
-**Goal:** Convert the Clicky-derived macOS app and shared Electron baseline into a Cappy-branded, local-first Capital One themed financial cursor assistant with an ElevenLabs voice-agent boundary, authenticated customer-data tools, and no generic Clicky behavior.
+**Goal:** Convert the inherited macOS app and shared Electron baseline into a Cappy-branded, local-first Capital One themed financial cursor assistant with an ElevenLabs voice-agent boundary, authenticated customer-data tools, and no generic desktop-tutor behavior.
 
 **Architecture:** Keep reusable screen capture, OCR, global shortcut, audio, and passive overlay infrastructure. Replace product behavior with Cappy-specific authentication, session memory, finance tools, agent orchestration, forecast rendering, and Capital One inspired styling. Keep API credentials in Keychain/server environment; use synthetic and recorded providers for offline development.
 
@@ -54,7 +54,7 @@
 - [ ] Remove old product assets from the active target: demo screenshots, source music, onboarding media, and unrelated tutorial images.
 - [ ] Remove `PostHog` and `Sparkle` package products from the native target unless a Cappy-specific use exists; no analytics or updater runs by default.
 - [ ] Update root package/product metadata and Electron window titles without editing `README.md`.
-- [ ] Add branding test that recursively scans source and UI copy, allowlisting only `macos/CLICKY-LICENSE.txt`, `docs/attribution.md`, and source-notice comments. It must fail on user-visible `Clicky`, `Flicky`, `Learning Buddy`, `Farza`, `Claude`, `Sonnet`, `Opus`, or generic tutor copy.
+- [ ] Add branding test that recursively scans source and UI copy, allowlisting only `macos/THIRD-PARTY-LICENSE.txt`, `docs/attribution.md`, and source-notice comments. It must fail on user-visible unrelated branding, `Flicky`, `Learning Buddy`, `Claude`, `Sonnet`, `Opus`, or generic tutor copy.
 - [ ] Run `npm test -- tests/branding/branding.test.ts` and typecheck. Commit `refactor: rename product surfaces to Cappy`.
 
 ### Task 2: Add local authentication, sessions, and profile policy
@@ -131,7 +131,7 @@ export interface CappyElevenLabsGateway { createSession(context: CappyToolContex
 
 **Files:**
 - Modify or rename: `macos/cappy/CappyManager.swift`, `CappyDictationManager.swift`, `CappyAudioConversionSupport.swift`, `CappyScreenCaptureUtility.swift`, `CappyResponseOverlay.swift`, `CappyPanelView.swift`, `CappyAnalytics.swift`.
-- Delete: onboarding video/music state, onboarding demo methods, generic Claude prompt builders, model picker, Farza feedback UI, PostHog tracking, and generic element-pointing paths.
+- Delete: onboarding video/music state, onboarding demo methods, generic Claude prompt builders, model picker, legacy feedback UI, PostHog tracking, and generic element-pointing paths.
 - Create: `macos/cappy/CappyFinanceCoordinator.swift`, `macos/cappy/CappyAuthSessionStore.swift`.
 - Test: `macos/cappyTests/CappyFinanceCoordinatorTests.swift`.
 
@@ -176,7 +176,7 @@ export interface CappyElevenLabsGateway { createSession(context: CappyToolContex
 
 **Files:**
 - Modify: `macos/README.md`, `docs/development.md`, `docs/architecture.md`, `docs/implementation-status.md`, `docs/verification.md`, `docs/attribution.md`.
-- Preserve: `macos/CLICKY-LICENSE.txt`, root `README.md`, visible `plans/` and `specs/` documents.
+- Preserve: `macos/THIRD-PARTY-LICENSE.txt`, root `README.md`, visible `plans/` and `specs/` documents.
 - Create: `docs/provider-contracts.md`, `docs/cappy-agent-configuration.md`.
 
 - [ ] Document Xcode workflow for `macos/cappy.xcodeproj`, signing team, permissions, Cappy agent configuration, and local demo login.
@@ -184,7 +184,7 @@ export interface CappyElevenLabsGateway { createSession(context: CappyToolContex
 - [ ] Document synthetic, recorded, and live data modes and the live-contract verification gate.
 - [ ] Document that native macOS Xcode validation and Windows device validation are separate requirements.
 - [ ] Update status to distinguish automated passing checks from unverified native/Windows gates.
-- [ ] Keep legal attribution concise and separate from product UI. State that Clicky source is used under MIT and Cappy behavior is custom.
+- [ ] Keep legal attribution concise and separate from product UI. State that inherited source is used under MIT and Cappy behavior is custom.
 - [ ] Run repository branding scan, `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e`, and `npm run test:stress`. Commit `docs: document Cappy development and provider setup`.
 
 ### Task 9: Final verification and integration
@@ -201,5 +201,5 @@ export interface CappyElevenLabsGateway { createSession(context: CappyToolContex
 - [ ] Run `npm run test:stress -- --reporter=dot`.
 - [ ] Run native Cappy from Xcode on macOS and record permission, login/logout, push-to-talk, ElevenLabs response, OCR preview, forecast, follow-up, stale-data, and shutdown results in `docs/verification.md`.
 - [ ] Verify Windows status is accurately marked verified or unverified; never infer it from shared tests.
-- [ ] Review diff for Clicky product behavior, secrets, root README changes, and unrelated refactors.
+- [ ] Review diff for obsolete product behavior, secrets, root README changes, and unrelated refactors.
 - [ ] Commit `chore: verify Cappy baseline` only after all checks pass.

@@ -71,7 +71,7 @@ final class MenuBarPanelManager: NSObject {
         button.target = self
     }
 
-    /// Draws the clicky triangle as a menu bar icon. Uses the same shape
+    /// Draws the peppaprice triangle as a menu bar icon. Uses the same shape
     /// and rotation as the in-app cursor so the menu bar icon matches.
     private func makeCappyMenuBarIcon() -> NSImage {
         let iconSize: CGFloat = 18

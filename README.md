@@ -6,7 +6,7 @@ PeppaPrice is a native macOS menu bar app with a small winged pig beside your cu
 
 The product also includes a persistent shopping basket, retailer-page verification, a recoverable Nessie sandbox payment demonstration, and a local credit/loan-cost simulator. The goal is to make financial context available **at the moment of a decision**, without requiring someone to copy prices into a separate budgeting dashboard.
 
-This repository contains several generations of the project. **The current PeppaPrice application is in [`flicky-swift/`](flicky-swift/).** Legacy names such as Flicky, Cappy, Clicky, and `leanring-buddy` remain in source identifiers, build targets, and storage paths. They do not indicate separate services that all need to run together.
+This repository contains several generations of the project. **The current PeppaPrice application is in [`flicky-swift/`](flicky-swift/).** Legacy names such as Flicky, Cappy, and `leanring-buddy` remain in source identifiers, build targets, and storage paths. They do not indicate separate services that all need to run together.
 
 > **Implementation scope:** Nessie provides persisted synthetic banking records through a real sandbox API. Checkout can change that sandbox balance; retailer cart and order steps are simulated. Credit comparisons are local educational calculations. This build does not connect a production bank account, place a retailer order, pull a credit report, or submit a loan application.
 
@@ -312,7 +312,7 @@ The project's contribution is the integration of contextual interaction, explici
 
 ### Data and deployment boundaries
 
-Long-lived AI provider keys belong in Worker secrets. The native Realtime installation holds a client access token, and Nessie configuration remains in an unbundled local file. Financial context and screenshots can leave the device for AI analysis; basket, credit history, and checkout recovery records are persisted locally. The current `ClickyAnalytics.swift` implementation is a no-op stub.
+Long-lived AI provider keys belong in Worker secrets. The native Realtime installation holds a client access token, and Nessie configuration remains in an unbundled local file. Financial context and screenshots can leave the device for AI analysis; basket, credit history, and checkout recovery records are persisted locally. The current `PeppaPriceAnalytics.swift` implementation is a no-op stub.
 
 The authenticated Realtime gateway and the general AI/search proxy have different security properties. The general proxy currently has permissive CORS and no comparable client-authentication gate in its source. Secret storage alone does not make that endpoint a hardened public service. Public deployment would require additional access controls, abuse/rate controls, and stronger review of arbitrary page fetching.
 
@@ -500,6 +500,6 @@ tests/                           TypeScript domain/service/UI/integration checks
 docs/                            Supporting and historical engineering documentation
 ```
 
-The native foundation derives from **Farza's MIT-licensed Clicky**. Reused infrastructure includes menu bar lifecycle, ScreenCaptureKit capture, push-to-talk plumbing, audio conversion/transcription infrastructure, AppKit overlay behavior, and cursor motion. Preserve the notices in [`flicky-swift/LICENSE`](flicky-swift/LICENSE) and [`macos/CLICKY-LICENSE.txt`](macos/CLICKY-LICENSE.txt).
+The native foundation derives from an MIT-licensed native desktop foundation. Reused infrastructure includes menu bar lifecycle, ScreenCaptureKit capture, push-to-talk plumbing, audio conversion/transcription infrastructure, AppKit overlay behavior, and cursor motion. Preserve the notices in [`flicky-swift/LICENSE`](flicky-swift/LICENSE) and [`macos/THIRD-PARTY-LICENSE.txt`](macos/THIRD-PARTY-LICENSE.txt).
 
 Project-specific work builds financial account integration and evidence, the deterministic forecast/scenario engine, specialized research coordination, the PeppaPrice experience, product verification and basket state, recoverable sandbox checkout, and local credit simulation on top of that foundation. [`docs/attribution.md`](docs/attribution.md) records earlier integration attribution; some capability-status statements there and in inherited READMEs predate the current native implementation.

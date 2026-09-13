@@ -35,6 +35,7 @@ final class FlickyResearch: ObservableObject {
     @Published var isPlanning = false
     @Published var isRefreshing = false
     @Published var isFlightVisible = false
+    private(set) var isEvidenceSuppressed = false
     var onRefresh: (() async -> Void)?
     static let allowedMetrics = ["balance", "bills", "spending", "cashflow", "rewards", "investing"]
 
@@ -56,12 +57,19 @@ final class FlickyResearch: ObservableObject {
 
     func dismissEvidence() { evidencePanel?.orderOut(nil) }
 
+    /// Dedicated product pages own their topic; stale planner results cannot reopen evidence.
+    func setEvidenceSuppressed(_ suppressed: Bool) {
+        if suppressed { reset() }
+        isEvidenceSuppressed = suppressed
+    }
+
     func updateSnapshot(_ snapshot: FinancialInsights?) {
         self.snapshot = snapshot
         if evidencePanel?.isVisible == true { presentEvidence() }
     }
 
     func showMetrics(_ keys: [String], snapshot: FinancialInsights?) {
+        guard !isEvidenceSuppressed else { return }
         let validKeys = keys.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter(Self.allowedMetrics.contains)
         guard !validKeys.isEmpty else { return }
         self.snapshot = snapshot
@@ -77,10 +85,13 @@ final class FlickyResearch: ObservableObject {
     }
 
     private func presentEvidence() {
+        guard !isEvidenceSuppressed else { return }
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main else { return }
         let visibleFrame = screen.visibleFrame
-        let frame = CGRect(x: visibleFrame.minX + 20, y: visibleFrame.minY + 20,
-                           width: min(390, visibleFrame.width - 40), height: min(snapshot == nil ? 420 : 650, visibleFrame.height - 150))
+        let size = CGSize(width: min(560, visibleFrame.width - 40),
+                          height: min(snapshot == nil ? 460 : 740, visibleFrame.height - 40))
+        let frame = CGRect(x: visibleFrame.midX - size.width / 2, y: visibleFrame.midY - size.height / 2,
+                           width: size.width, height: size.height)
         if evidencePanel == nil {
             let panel = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             panel.isOpaque = false
@@ -163,6 +174,7 @@ final class FlickyResearch: ObservableObject {
     func investigate(question: String, images: [(data: Data, label: String)], context: String,
                      snapshot: FinancialInsights?, api: ClaudeAPI,
                      history: [(userPlaceholder: String, assistantResponse: String)] = []) async -> String {
+        guard !isEvidenceSuppressed else { return "" }
         let requestGeneration = generation
         self.question = question
         self.snapshot = snapshot
@@ -338,6 +350,7 @@ struct FlickySpecialistFlightView: View {
 
 struct FlickyEvidenceView: View {
     @ObservedObject var research: FlickyResearch
+    @State private var selectedMetric = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let ink = Color(red: 0.69, green: 0.75, blue: 0.84)
     private let palette: [Color] = [.cyan, .mint, .orange, .indigo, .pink, .yellow]
@@ -346,21 +359,19 @@ struct FlickyEvidenceView: View {
         GeometryReader { viewport in
             VStack(spacing: 0) {
                 header
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 28) {
                         if research.isPlanning || !research.specialists.isEmpty { activity }
                         if let snapshot = research.snapshot, !research.metricKeys.isEmpty {
-                            ForEach(research.metricKeys, id: \.self) { key in
-                                evidence(key, snapshot: snapshot)
-                                Rectangle().fill(.white.opacity(0.1)).frame(height: 1)
-                            }
+                            evidence(activeMetric, snapshot: snapshot)
                         } else if !research.isPlanning {
                             unavailable
                         }
                     }
-                    .padding(22)
+                    .padding(32)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .scrollIndicators(.hidden)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 footer
             }
@@ -378,14 +389,26 @@ struct FlickyEvidenceView: View {
         .preferredColorScheme(.dark)
     }
 
+    private var activeMetric: String {
+        research.metricKeys.contains(selectedMetric) ? selectedMetric : (research.metricKeys.first ?? "balance")
+    }
+
+    private func metricTitle(_ key: String) -> String {
+        switch key {
+        case "balance": return "Balance"
+        case "bills": return "Upcoming bills"
+        case "cashflow": return "Cash flow"
+        default: return key.capitalized
+        }
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
                 ZStack {
-                    Circle().stroke(.cyan.opacity(0.45), lineWidth: 1).frame(width: 38, height: 38)
-                    Image(systemName: "cursorarrow").font(.system(size: 22, weight: .semibold)).foregroundStyle(.cyan)
-                    Circle().fill(.mint).frame(width: 8, height: 8).offset(x: 17, y: -13)
-                }.frame(width: 44, height: 44)
+                    Circle().stroke(.cyan.opacity(0.45), lineWidth: 1).frame(width: 28, height: 28)
+                    Image(systemName: "cursorarrow").font(.system(size: 15, weight: .semibold)).foregroundStyle(.cyan)
+                }.frame(width: 32, height: 32)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Behind the answer").font(.system(size: 20, weight: .semibold, design: .rounded))
                     Text(research.isPlanning ? "Finding the right angles…" : "The numbers. The reasoning.")
@@ -400,8 +423,15 @@ struct FlickyEvidenceView: View {
                 Text(research.question).font(.system(size: 13, weight: .medium)).foregroundStyle(ink)
                     .lineLimit(2).fixedSize(horizontal: false, vertical: true)
             }
+            if research.metricKeys.count > 1 {
+                Picker("View", selection: Binding(get: { activeMetric }, set: { selectedMetric = $0 })) {
+                    ForEach(research.metricKeys, id: \.self) { key in
+                        Text(metricTitle(key)).tag(key)
+                    }
+                }.pickerStyle(.menu).font(.system(size: 13)).accessibilityLabel("Financial section")
+            }
         }
-        .padding(22)
+        .padding(32)
         .overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(0.12)).frame(height: 1) }
     }
 
@@ -457,7 +487,8 @@ struct FlickyEvidenceView: View {
         HStack(spacing: 8) {
             Circle().fill(research.snapshot == nil ? .orange : .mint).frame(width: 6, height: 6)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Nessie sandbox").font(.system(size: 11, weight: .medium))
+                Text("Account data").font(.system(size: 11, weight: .medium))
+                    .help("Source: Capital One Nessie sandbox account")
                 Text(research.snapshot.map { "Fetched " + $0.asOf.formatted(date: .omitted, time: .shortened) } ?? "Account data unavailable")
                     .font(.system(size: 10)).foregroundStyle(ink)
             }
@@ -469,12 +500,12 @@ struct FlickyEvidenceView: View {
             }.buttonStyle(.plain).disabled(research.isRefreshing || research.onRefresh == nil)
                 .pointerCursor(isEnabled: !research.isRefreshing && research.onRefresh != nil)
         }
-        .padding(.horizontal, 22).padding(.vertical, 14)
+        .padding(.horizontal, 32).padding(.vertical, 20)
         .background(.white.opacity(0.025))
     }
 
     @ViewBuilder private func evidence(_ key: String, snapshot: FinancialInsights) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 24) {
             switch key {
             case "investing":
                 sectionTitle("Before you invest", symbol: "chart.line.uptrend.xyaxis", period: investmentPeriod)
@@ -497,12 +528,12 @@ struct FlickyEvidenceView: View {
                 ledgerRow("Upcoming bills", value: "− " + snapshot.formatCents(billTotal), color: .orange)
                 ledgerRow("Reserve", value: "− $500.00", color: ink)
                 HStack(alignment: .firstTextBaseline) {
-                    Text("Room to spend").font(.system(size: 13, weight: .medium))
+                    Text("Room to spend").font(.system(size: 15, weight: .medium))
                     Spacer(minLength: 8)
-                    Text(snapshot.formattedSafeToSpend).font(.system(size: 27, weight: .semibold, design: .rounded))
+                    Text(snapshot.formattedSafeToSpend).font(.system(size: 34, weight: .semibold, design: .rounded))
                         .monospacedDigit().foregroundStyle(.mint).minimumScaleFactor(0.7).lineLimit(1)
                         .contentTransition(.numericText())
-                }.padding(.top, 10)
+                }.padding(.vertical, 16)
                 if billTotal + 50000 > snapshot.balanceCents {
                     Text("The balance is " + snapshot.formatCents(billTotal + 50000 - snapshot.balanceCents) + " short of covering these bills and the reserve.")
                         .font(.system(size: 12)).foregroundStyle(.orange)
@@ -572,9 +603,10 @@ struct FlickyEvidenceView: View {
     private func ledgerRow(_ title: String, value: String, color: Color) -> some View {
         HStack(spacing: 9) {
             Circle().fill(color).frame(width: 6, height: 6)
-            Text(title).font(.system(size: 13)).foregroundStyle(ink)
+            Text(title).font(.system(size: 14)).foregroundStyle(ink)
             Spacer()
-            Text(value).font(.system(size: 16, weight: .medium)).monospacedDigit()
+            Text(value).font(.system(size: 19, weight: .medium)).monospacedDigit()
+                .lineLimit(1).minimumScaleFactor(0.7)
         }
     }
 

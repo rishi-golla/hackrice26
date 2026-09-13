@@ -4,15 +4,15 @@ Status: finalized for the planning handoff at the user's request on 2026-09-12. 
 
 ## Objective and constraints
 
-Build a 24-hour hackathon demo for macOS and Windows in which the user talks to their cursor about what is on screen. The cursor is the character; temporary overlays are its gestures. It previews how an on-screen purchase changes a user's next 14 days of cash flow. Original contribution: price-to-projection pipeline, deterministic forecast, explainable warning overlay, and identity-gated sandbox mitigation. Credit Clicky as inspiration and attribute any reused MIT code. Do not claim track eligibility or originality rules have been verified; check the event's supplied rules before submission.
+Build a 24-hour hackathon demo for macOS and Windows in which the user talks to their cursor about what is on screen. The cursor is the character; temporary overlays are its gestures. It previews how an on-screen purchase changes a user's next 14 days of cash flow. Original contribution: price-to-projection pipeline, deterministic forecast, explainable warning overlay, and identity-gated sandbox mitigation. Preserve required notices for reused MIT code. Do not claim track eligibility or originality rules have been verified; check the event's supplied rules before submission.
 
 Target a single selected display and USD checking-account purchases. Native full-screen games, protected content, multiple currencies, credit-card settlement, real bank connectivity, and real money movement are outside the demo scope. Both operating systems require a real-device smoke test; cross-compilation alone is insufficient.
 
 ## Approaches considered
 
 1. Recommended: Electron + TypeScript + React desktop application with a small Node service. One shared product and calculation engine across both operating systems. Rebuild the small overlay rather than porting Swift. Screen capture, mixed display scales, and transparent window behavior remain platform validation work.
-2. Two Clicky forks: original Swift macOS app plus an independently maintained Windows port. More existing UI reuse, but two runtimes, separate capture behavior, and duplicated integration work are costly in 24 hours.
-3. Native macOS first, Windows later: greatest reuse of original Clicky, but does not meet the user's two-platform requirement.
+2. Two independent native implementations: a Swift macOS app and a Windows port. More existing UI reuse, but two runtimes, separate capture behavior, and duplicated integration work are costly in 24 hours.
+3. Native macOS first, Windows later: greatest reuse of existing native infrastructure, but does not meet the user's two-platform requirement.
 
 ## Product flow
 
@@ -108,8 +108,6 @@ Demo: talk to the cursor about a checkout-like page, hover a $200 purchase, show
 
 ## Research sources and limits
 
-- Original Clicky README: https://github.com/farzaa/clicky — MIT, native macOS, screenshot plus speech pipeline and pointing overlay. Its README does not establish that a reusable OCR/whiteboard implementation exists.
-- Windows port: https://github.com/hhsw2015/clicky — separate Python/PyQt implementation; not audited for reuse.
 - Electron capture: https://www.electronjs.org/docs/latest/api/desktop-capturer
 - Electron windows: https://www.electronjs.org/docs/latest/api/browser-window
 - Persona quickstart: https://docs.withpersona.com/api-quickstart-tutorial

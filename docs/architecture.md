@@ -1,6 +1,6 @@
 # Architecture
 
-The cross-platform Electron baseline remains available. The primary macOS path now vendors Clicky's MIT-licensed native menu-bar target under `macos/leanring-buddy/`. Clicky owns ScreenCaptureKit, the global push-to-talk event tap, AVAudioEngine, streaming transcription, AppKit overlay windows, cursor motion, and generic Claude/TTS chat. `FlickyFinancialCoordinator.swift` intercepts financial turns, performs local Vision OCR, and uses deterministic forecast output with local macOS speech.
+The cross-platform Electron baseline remains available. The primary macOS path now vendors the MIT-licensed native menu-bar target under `macos/leanring-buddy/`. The native foundation provides ScreenCaptureKit, the global push-to-talk event tap, AVAudioEngine, streaming transcription, AppKit overlay windows, cursor motion, and generic Claude/TTS chat. `FlickyFinancialCoordinator.swift` intercepts financial turns, performs local Vision OCR, and uses deterministic forecast output with local macOS speech.
 
 The local Fastify child process exposes a short-lived bearer-protected loopback API. It validates account, session and payload schemas before calling the pure forecast engine. Tesseract runs locally with bundled English assets; OCR output is reduced to candidate amount and boxes before conversation routing.
 

@@ -55,7 +55,7 @@ Entry condition: Parts 1–3 pass on tested platforms, verified Nessie transfer 
 - [ ] Run `npm run typecheck`, `npm test`, and `npm run build`; record actual output and unresolved failures. Do not claim passing from a partial suite.
 - [ ] On each OS run the acceptance matrix: fresh off state, $200 → −$80, $10 → $110, zero-versus-negative, stale/API failure, display scaling, cursor conversation, cancellation and packaged offline launch.
 - [ ] Measure five hover runs and three voice turns per OS, separating OCR, router, forecast and speech latency. Report target ≤3 seconds as a measured result, not a promise.
-- [ ] Write `docs/verification.md` with actual devices/builds/results and `docs/attribution.md` distinguishing Clicky inspiration, copied source (if any) and original work. Do not write README.
+- [ ] Write `docs/verification.md` with actual devices/builds/results and `docs/attribution.md` distinguishing desktop-companion inspiration, copied source (if any) and original work. Do not write README.
 - [ ] Rehearse the three-minute demo using live, recorded or synthetic mode visibly labeled. Never substitute a staged transfer or recording for a live integration claim.
 - [ ] Commit `docs: record verified cross-platform demo evidence`.
 

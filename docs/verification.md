@@ -119,13 +119,13 @@ Following `plans/2026-09-12-cursor-financial-bodyguard-demo.md`'s script, adjust
 3. **Explainability (1:10–1:40):** Ask "Why?" — grounded reply cites rent and utilities by name and date. Retype with $10 — show $110, within-reserve.
 4. **Conversation memory (1:40–2:10):** "What about September 20?" — same purchase, projected minimum $120. This exercises the real deterministic router end to end.
 5. **Second platform or honest gap (2:10–2:40):** No second device was available this session; say so rather than claiming Windows parity.
-6. **Contribution (2:40–3:00):** "Clicky inspired the cursor companion and its native macOS capture/voice stack. We built the purchase forecast engine, the OCR decision rules, the authenticated snapshot service, and the grounded conversation layer on top of it." See `docs/attribution.md` for the full breakdown.
+6. **Contribution (2:40–3:00):** "An existing desktop companion inspired the cursor companion and its native macOS capture/voice stack. We built the purchase forecast engine, the OCR decision rules, the authenticated snapshot service, and the grounded conversation layer on top of it." See `docs/attribution.md` for the full breakdown.
 
 Use Synthetic mode for the populated rehearsal while the supplied Nessie credential has no customer rows. Nessie authentication is verified read-only, but live account insights require a mapped sandbox customer/account; live ElevenLabs remains disabled/unverified (see `docs/provider-contracts.md`). Never substitute a staged transfer or recording for a populated live integration claim.
 
 ## Native macOS note
 
-Clicky's Xcode target is vendored under `macos/cappy/` (renamed from `macos/leanring-buddy/`) and customized with `CappyFinanceCoordinator.swift` for deterministic financial responses plus local Vision OCR, though the finance tool itself is currently unwired (see Known Issues #4). This environment has Command Line Tools but no Xcode GUI validation was performed here. Follow `macos/README.md` and run the target from Xcode so TCC permissions remain valid — do not run `xcodebuild` from Terminal.
+The inherited Xcode target is vendored under `macos/cappy/` (renamed from `macos/leanring-buddy/`) and customized with `CappyFinanceCoordinator.swift` for deterministic financial responses plus local Vision OCR, though the finance tool itself is currently unwired (see Known Issues #4). This environment has Command Line Tools but no Xcode GUI validation was performed here. Follow `macos/README.md` and run the target from Xcode so TCC permissions remain valid — do not run `xcodebuild` from Terminal.
 
 ## Final handoff
 

@@ -16,8 +16,9 @@ import Carbon
 import SwiftUI
 
 extension Notification.Name {
+    static let peppapriceShowAccountPanel = Notification.Name("peppapriceShowAccountPanel")
     static let flickyPanelOpened = Notification.Name("flickyPanelOpened")
-    static let clickyDismissPanel = Notification.Name("clickyDismissPanel")
+    static let peppapriceDismissPanel = Notification.Name("peppapriceDismissPanel")
 }
 
 /// Custom NSPanel subclass that can become the key window even with
@@ -35,10 +36,11 @@ final class MenuBarPanelManager: NSObject {
     private var panel: NSPanel?
     private var clickOutsideMonitor: Any?
     private var dismissPanelObserver: NSObjectProtocol?
+    private var showAccountPanelObserver: NSObjectProtocol?
 
     private let companionManager: CompanionManager
-    private let panelWidth: CGFloat = 480
-    private let panelHeight: CGFloat = 556
+    private let panelWidth = CompanionPanelLayout.width
+    private var panelHeight = CompanionPanelLayout.height
 
     init(companionManager: CompanionManager) {
         self.companionManager = companionManager
@@ -56,8 +58,12 @@ final class MenuBarPanelManager: NSObject {
             return event
         }
 
+        showAccountPanelObserver = NotificationCenter.default.addObserver(
+            forName: .peppapriceShowAccountPanel, object: nil, queue: .main
+        ) { [weak self] _ in self?.showPanel() }
+
         dismissPanelObserver = NotificationCenter.default.addObserver(
-            forName: .clickyDismissPanel,
+            forName: .peppapriceDismissPanel,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -66,6 +72,7 @@ final class MenuBarPanelManager: NSObject {
     }
 
     deinit {
+        if let observer = showAccountPanelObserver { NotificationCenter.default.removeObserver(observer) }
         if let panelKeyMonitor { NSEvent.removeMonitor(panelKeyMonitor) }
         if let panelHotKey { UnregisterEventHotKey(panelHotKey) }
         if let panelHotKeyHandler { RemoveEventHandler(panelHotKeyHandler) }
@@ -150,6 +157,7 @@ final class MenuBarPanelManager: NSObject {
 
         positionPanelBelowStatusItem()
 
+        companionManager.responseOverlayManager.setPresentedInMainPanel(true)
         panel?.makeKeyAndOrderFront(nil)
         panel?.orderFrontRegardless()
         installClickOutsideMonitor()
@@ -158,15 +166,21 @@ final class MenuBarPanelManager: NSObject {
 
     private func hidePanel() {
         panel?.orderOut(nil)
+        companionManager.responseOverlayManager.setPresentedInMainPanel(false)
         removeClickOutsideMonitor()
     }
 
     private func createPanel() {
-        let companionPanelView = CompanionPanelView(companionManager: companionManager)
-            .frame(width: panelWidth)
+        let companionPanelView = CompanionPanelView(companionManager: companionManager) { [weak self] height in
+            guard let self, abs(self.panelHeight - height) > 0.5 else { return }
+            self.panelHeight = height
+            DispatchQueue.main.async { [weak self] in self?.positionPanelBelowStatusItem() }
+        }
+
 
         let hostingView = NSHostingView(rootView: companionPanelView)
         hostingView.frame = NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight)
+        hostingView.sizingOptions = []
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
         hostingView.focusRingType = .none
@@ -198,23 +212,13 @@ final class MenuBarPanelManager: NSObject {
         guard let panel else { return }
         guard let buttonWindow = statusItem?.button?.window else { return }
 
-        let statusItemFrame = buttonWindow.frame
-        let gapBelowMenuBar: CGFloat = 4
+        let visibleFrame = buttonWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? buttonWindow.frame
+        let scale = min(1, (visibleFrame.width - 40) / panelWidth, (visibleFrame.height - 40) / panelHeight)
+        let size = CGSize(width: panelWidth * scale, height: panelHeight * scale)
+        panel.setFrame(NSRect(x: visibleFrame.midX - size.width / 2,
+                              y: visibleFrame.midY - size.height / 2,
+                              width: size.width, height: size.height), display: true)
 
-        // Calculate the panel's content height from the hosting view's fitting size
-        // so the panel snugly wraps the SwiftUI content instead of using a fixed height.
-        let fittingSize = panel.contentView?.fittingSize ?? CGSize(width: panelWidth, height: panelHeight)
-        let actualPanelHeight = fittingSize.height
-
-        // Horizontally center the panel beneath the status item icon
-        let visibleFrame = buttonWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? statusItemFrame
-        let panelOriginX = min(max(statusItemFrame.midX - (panelWidth / 2), visibleFrame.minX + 8), visibleFrame.maxX - panelWidth - 8)
-        let panelOriginY = statusItemFrame.minY - actualPanelHeight - gapBelowMenuBar
-
-        panel.setFrame(
-            NSRect(x: panelOriginX, y: panelOriginY, width: panelWidth, height: actualPanelHeight),
-            display: true
-        )
     }
 
     // MARK: - Click Outside Dismissal

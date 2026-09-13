@@ -7,7 +7,7 @@ release/
 .env.local
 *.log
 test-results/
-macos/clicky-worker/.dev.vars
+macos/peppaprice-worker/.dev.vars
 **/xcuserdata/
 .hover-latency-bench-*
 eng.traineddata

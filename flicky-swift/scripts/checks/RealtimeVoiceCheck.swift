@@ -1,5 +1,5 @@
 // Live integration check: uses a short synthesized input fixture, never the microphone.
-// swiftc -swift-version 5 leanring-buddy/RealtimeVoiceClient.swift leanring-buddy/BuddyAudioConversionSupport.swift scripts/checks/RealtimeVoiceCheck.swift -o /tmp/flicky-realtime-check
+// swiftc -swift-version 5 leanring-buddy/RealtimeVoiceClient.swift leanring-buddy/RealtimeResearchQueue.swift leanring-buddy/BuddyAudioConversionSupport.swift scripts/checks/RealtimeVoiceCheck.swift -o /tmp/flicky-realtime-check
 // /tmp/flicky-realtime-check /tmp/flicky-realtime-input.aiff
 import AVFoundation
 import AppKit
@@ -10,7 +10,9 @@ struct RealtimeVoiceCheck {
     @MainActor
     static func main() async throws {
         guard let configuration = FlickyRealtimeConfiguration.load() else { fatalError("Missing local Realtime configuration") }
-        let textInput = CommandLine.arguments.dropFirst().first == "--text"
+        let multiple = CommandLine.arguments.contains("--multi")
+        let textInput = multiple || CommandLine.arguments.dropFirst().first == "--text"
+        let expectedCalls = multiple ? 3 : 1
         var audio: Data?
         if !textInput {
             let file = try AVAudioFile(forReading: URL(fileURLWithPath: CommandLine.arguments[1]))
@@ -33,11 +35,17 @@ struct RealtimeVoiceCheck {
             configuredVoice = voice
             print("SESSION: \(model), voice: \(voice)")
         }
-        client.onResearch = { _ in researchCalls += 1; return "Synthetic test result: the verification code is bluebird. This is a connection test, not financial data." }
+        client.onResearch = { _ in
+            researchCalls += 1
+            if researchCalls < expectedCalls {
+                return "Synthetic stage \(researchCalls) complete. Call research_financial_question again for stage \(researchCalls + 1) before answering."
+            }
+            return "Synthetic final result: the verification code is bluebird. Answer now. This is a connection test, not financial data."
+        }
         client.onCompleted = { transcript, reply in completion = true; capturedTranscript = transcript; spokenReply = reply }
         client.onError = { failure = $0 }
         client.start(recordedAudio: audio, text: textInput ? "Analyze my spending" : nil) {
-            FlickyRealtimeContext(instructions: "This is an integration test. Call research_financial_question exactly once before answering. Then say the verification code it returned, in one short sentence. Speak warmly.",
+            FlickyRealtimeContext(instructions: "This is an integration test. Call research_financial_question exactly \(expectedCalls) times sequentially before answering. Then say the verification code it returned, in one short sentence. Speak warmly.",
                 history: [(user: "Hello, can you help me with my budget?", assistant: "Sure. What would you like to check?")],
                 images: [(data: imageData, label: "Synthetic screen fixture")])
         }
@@ -47,7 +55,7 @@ struct RealtimeVoiceCheck {
         if let failure { fatalError(failure) }
         precondition(configuredVoice == "marin", "Unexpected voice")
         precondition(completion, "Voice playback did not finish")
-        precondition(researchCalls == 1, "Research tool was not called exactly once")
+        precondition(researchCalls == expectedCalls, "Unexpected research call count")
         precondition(spokenReply.lowercased().contains("bluebird"), "Tool result did not reach the spoken answer")
         precondition(!capturedTranscript.isEmpty, "Input transcript was not received")
         print("PASS: conversation history, screen image, text/audio input, research tool round trip, streamed speech playback, transcript, and completion")

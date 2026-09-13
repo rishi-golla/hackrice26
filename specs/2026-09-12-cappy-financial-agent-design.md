@@ -6,9 +6,9 @@
 
 ## Goal
 
-Replace the current Clicky-derived presentation and generic tutor behavior with Cappy: a cursor-bound financial assistant that uses an ElevenLabs conversational agent for voice, a server-side customer-data API for financial context, and the existing deterministic forecast engine for every money claim.
+Replace the current inherited presentation and generic tutor behavior with Cappy: a cursor-bound financial assistant that uses an ElevenLabs conversational agent for voice, a server-side customer-data API for financial context, and the existing deterministic forecast engine for every money claim.
 
-Cappy must feel like one product. Users see Cappy branding, Capital One inspired red/navy/white styling, Cappy language, finance-specific prompts, and finance-specific permission/error states. Reused Clicky code remains an implementation substrate only. The only visible Clicky references are legal source attribution and the preserved MIT license.
+Cappy must feel like one product. Users see Cappy branding, Capital One inspired red/navy/white styling, Cappy language, finance-specific prompts, and finance-specific permission/error states. Reused inherited code remains an implementation substrate only. Required license notices remain separate from product UI.
 
 ## Scope
 
@@ -100,7 +100,7 @@ The response model is replaceable through a `CappyModelProvider` interface in th
 
 ## Agent contract
 
-The native client depends on a Cappy-specific interface rather than Clicky’s Claude or ElevenLabs TTS classes:
+The native client depends on a Cappy-specific interface rather than the legacy Claude or ElevenLabs TTS classes:
 
 ```swift
 protocol CappyVoiceAgentClient {
@@ -139,9 +139,9 @@ ElevenLabs configuration is externalized through a short-lived session endpoint 
 
 ### Native macOS target
 
-Rename the project, scheme, targets, entry point, bundle display name, bundle identifier, and visible copy to Cappy. Rename `Buddy` and `Companion` implementation types to Cappy-specific names. Remove the Clicky-only onboarding, music, screenshots, generic Claude vision flow, model picker, Farza feedback controls, PostHog analytics, and generic pointing prompt. Keep capture, shortcut, audio conversion, permission, coordinate, authentication, and passive overlay code where it supports Cappy behavior.
+Rename the project, scheme, targets, entry point, bundle display name, bundle identifier, and visible copy to Cappy. Rename `Buddy` and `Companion` implementation types to Cappy-specific names. Remove the legacy onboarding, music, screenshots, generic Claude vision flow, model picker, legacy feedback controls, PostHog analytics, and generic pointing prompt. Keep capture, shortcut, audio conversion, permission, coordinate, authentication, and passive overlay code where it supports Cappy behavior.
 
-Replace the generic `ElevenLabsTTSClient` with `CappyElevenLabsAgentClient`. Remove the Claude API path from the active target. Keep legal attribution and `macos/CLICKY-LICENSE.txt` as source notices, with no product UI references.
+Replace the generic `ElevenLabsTTSClient` with `CappyElevenLabsAgentClient`. Remove the Claude API path from the active target. Keep legal attribution and `macos/THIRD-PARTY-LICENSE.txt` as source notices, with no product UI references.
 
 ### Shared Electron baseline
 
@@ -161,12 +161,12 @@ Use a restrained Capital One inspired palette: deep navy surfaces, bright red ac
 - Auth tests prove login, logout invalidation, account isolation, session expiry, and preference scoping.
 - Model-provider and tool-registry tests prove provider replacement, permission policy, and read-only enforcement.
 - OCR tests prove ambiguous totals require confirmation and stale captures cannot publish.
-- Branding scan fails on user-visible Clicky, Farza, Claude generic-chat, or Learning Buddy strings; legal source files are allowlisted.
+- Branding scan fails on user-visible unrelated branding, Claude generic-chat, or Learning Buddy strings; legal source files are allowlisted.
 - Typecheck and production build pass.
 
 ### macOS manual
 
-Open the Xcode project, set a local signing team, grant Accessibility, Screen Recording, Screen Content, and Microphone permissions, and verify push-to-talk, local capture, ElevenLabs agent response, forecast card, follow-up correction, stale-data message, and clean shutdown. Do not use terminal `xcodebuild` for this Clicky-derived target because the upstream permission guidance warns it can invalidate TCC state.
+Open the Xcode project, set a local signing team, grant Accessibility, Screen Recording, Screen Content, and Microphone permissions, and verify push-to-talk, local capture, ElevenLabs agent response, forecast card, follow-up correction, stale-data message, and clean shutdown. Do not use terminal `xcodebuild` for this inherited target because the upstream permission guidance warns it can invalidate TCC state.
 
 ### Cross-platform
 
@@ -174,4 +174,4 @@ The Electron Cappy baseline remains the shared Windows path. Windows packaging a
 
 ## Success criteria
 
-A teammate can clone the repository, open the Cappy Xcode project or run the Electron baseline, configure only documented agent/API values, and see a Cappy-branded cursor assistant. A checkout question produces a grounded 14-day projection; voice follow-ups update the same scenario; no Clicky product behavior or branding appears; no financial write is possible; and all automated checks pass.
+A teammate can clone the repository, open the Cappy Xcode project or run the Electron baseline, configure only documented agent/API values, and see a Cappy-branded cursor assistant. A checkout question produces a grounded 14-day projection; voice follow-ups update the same scenario; no unrelated product behavior or branding appears; no financial write is possible; and all automated checks pass.

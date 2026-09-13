@@ -1,6 +1,6 @@
 // CompanionResponseOverlay.swift — PeppaPrice cursor-following response overlay
 //
-// Displays streaming AI response text + financial proof data next to the cursor.
+// Displays streaming response text and speech controls next to the cursor.
 // Non-activating NSPanel: floats above all apps without stealing focus.
 
 import AppKit
@@ -14,7 +14,6 @@ final class CompanionResponseOverlayViewModel: ObservableObject {
     @Published var streamingResponseText: String = ""
     @Published var isShowingResponse: Bool = false
     @Published var isSpeaking: Bool = false
-    @Published var financialBadge: FinancialBadgeData? = nil
 
     // Set by CompanionResponseOverlayManager so the stop button rendered inside
     // FlickyResponseOverlayView can reach back out to CompanionManager without
@@ -22,19 +21,26 @@ final class CompanionResponseOverlayViewModel: ObservableObject {
     var onStopButtonTapped: (() -> Void)?
 }
 
-struct FinancialBadgeData {
-    let balanceText: String
-    let safeToSpendText: String
-    let safeToSpendColor: Color
-}
-
 // MARK: - Overlay Manager
 
 @MainActor
 final class CompanionResponseOverlayManager {
-    private let viewModel = CompanionResponseOverlayViewModel()
+    let viewModel = CompanionResponseOverlayViewModel()
+    private var isPresentedInMainPanel = false
+
+    func setPresentedInMainPanel(_ presented: Bool) {
+        isPresentedInMainPanel = presented
+        if presented {
+            overlayPanel?.orderOut(nil)
+        } else if viewModel.isShowingResponse {
+            repositionPanelNearCursor()
+            overlayPanel?.alphaValue = 1
+            overlayPanel?.orderFrontRegardless()
+        }
+    }
     private var overlayPanel: NSPanel?
     private var autoHideWorkItem: DispatchWorkItem?
+    private var cursorTrackingTimer: Timer?
     private var shouldAutoHideAfterSpeaking = false
 
     private let cursorOffsetX: CGFloat = 90
@@ -48,24 +54,7 @@ final class CompanionResponseOverlayManager {
         set { viewModel.onStopButtonTapped = newValue }
     }
 
-    /// Begins a brand-new autonomous question/session. Positions the bubble once
-    /// near the cursor's current location and then holds that position for every
-    /// round of the session, including any autonomous follow-up rounds PeppaPrice
-    /// runs on its own without the user pressing push-to-talk again.
-    ///
-    /// Previously this repositioned the panel every frame to continuously chase
-    /// the live mouse position (via a 60Hz timer), even while the user was just
-    /// reading the response. If the user moved their mouse at all after asking
-    /// a question, the bubble would visibly teleport around the screen following
-    /// it — which read as the UI "crashing and going to different places."
-    ///
-    /// Later, `beginNextAutonomousRound()` was introduced for the multi-round
-    /// research loop, but the loop was calling this method again at the top of
-    /// every round — which repositions near wherever the mouse happens to be at
-    /// that moment. Since rounds are seconds apart (TTS playback time) and the
-    /// user's mouse naturally drifts in between, the bubble still visibly jumped
-    /// around over the course of one autonomous session. Repositioning only here,
-    /// once per whole session, fixes that for good.
+    /// Starts a new response beside the cursor and follows it while visible.
     func beginNewAutonomousSession() {
         autoHideWorkItem?.cancel()
         autoHideWorkItem = nil
@@ -76,13 +65,11 @@ final class CompanionResponseOverlayManager {
         createOverlayPanelIfNeeded()
         repositionPanelNearCursor()
         overlayPanel?.alphaValue = 1
-        overlayPanel?.orderFrontRegardless()
+        if !isPresentedInMainPanel { overlayPanel?.orderFrontRegardless() }
+        startFollowingCursor()
     }
 
-    /// Begins the next round of an already-visible autonomous session: clears
-    /// the streamed text so the next round's answer types in fresh, but
-    /// deliberately does NOT move the panel — it stays exactly where
-    /// `beginNewAutonomousSession()` first placed it.
+    /// Replaces the response for the next round without interrupting cursor tracking.
     func beginNextAutonomousRound() {
         autoHideWorkItem?.cancel()
         autoHideWorkItem = nil
@@ -92,33 +79,17 @@ final class CompanionResponseOverlayManager {
         viewModel.isShowingResponse = true
         createOverlayPanelIfNeeded()
         overlayPanel?.alphaValue = 1
-        overlayPanel?.orderFrontRegardless()
+        if !isPresentedInMainPanel { overlayPanel?.orderFrontRegardless() }
+        startFollowingCursor()
     }
 
     func updateStreamingText(_ accumulatedText: String) {
         // Hide complete and partial control tags while SSE is still arriving.
-        let controlTags = #"\[(?:METRIC|SEARCH|SHOP|BASKET|NAVIGATE|POINT|INSIGHTS|SIMULATE)(?:[^\]]*\]|[^\]]*$)"#
+        let controlTags = #"\[(?:CANCEL_SUBSCRIPTION|SUBSCRIPTIONS|CREDIT|METRIC|SEARCH|SHOP|BASKET|NAVIGATE|POINT|INSIGHTS|SIMULATE)(?:[^\]]*\]|[^\]]*$)"#
         viewModel.streamingResponseText = accumulatedText.replacingOccurrences(
             of: controlTags, with: "", options: [.regularExpression, .caseInsensitive]
         )
         resizePanelToFitContent()
-    }
-
-    func updateFinancialBadge(_ insights: FinancialInsights?) {
-        guard let insights else {
-            viewModel.financialBadge = nil
-            return
-        }
-        let safeColor: Color = insights.safeToSpendCents < 5000
-            ? Color(red: 1, green: 0.35, blue: 0.35)
-            : insights.safeToSpendCents < 20000
-                ? Color.orange
-                : Color.green
-        viewModel.financialBadge = FinancialBadgeData(
-            balanceText: insights.formattedBalance,
-            safeToSpendText: insights.formattedSafeToSpend,
-            safeToSpendColor: safeColor
-        )
     }
 
     /// Marks the current round's text as fully streamed in.
@@ -170,6 +141,8 @@ final class CompanionResponseOverlayManager {
     }
 
     func hideOverlay() {
+        cursorTrackingTimer?.invalidate()
+        cursorTrackingTimer = nil
         autoHideWorkItem?.cancel()
         autoHideWorkItem = nil
         shouldAutoHideAfterSpeaking = false
@@ -211,7 +184,26 @@ final class CompanionResponseOverlayManager {
         overlayPanel = panel
     }
 
-    private func repositionPanelNearCursor() {
+    private func startFollowingCursor() {
+        guard cursorTrackingTimer == nil else { return }
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated { [weak self] in
+                guard let self else {
+                    timer.invalidate()
+                    return
+                }
+                guard let panel = self.overlayPanel, panel.isVisible else { return }
+                // Hold still over the bubble so its Stop button remains clickable.
+                guard !panel.frame.insetBy(dx: -16, dy: -16).contains(NSEvent.mouseLocation),
+                      NSEvent.pressedMouseButtons == 0 else { return }
+                self.repositionPanelNearCursor(smoothly: true)
+            }
+        }
+        cursorTrackingTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func repositionPanelNearCursor(smoothly: Bool = false) {
         guard let panel = overlayPanel else { return }
         let mouse = NSEvent.mouseLocation
         let size = panel.frame.size
@@ -226,7 +218,22 @@ final class CompanionResponseOverlayManager {
             originX = max(vis.minX, min(originX, vis.maxX - size.width))
             originY = max(vis.minY, min(originY, vis.maxY - size.height))
         }
-        panel.setFrameOrigin(CGPoint(x: originX, y: originY))
+        var targetOrigin = CGPoint(x: originX, y: originY)
+        // A short glide lets the pointer reach the controls without a chasing effect.
+        // Cross-display moves snap directly to the new screen instead.
+        if smoothly, screenContainingPoint(panel.frame.origin) == screenContainingPoint(mouse),
+           !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            let currentOrigin = panel.frame.origin
+            targetOrigin.x = currentOrigin.x + (originX - currentOrigin.x) * 0.18
+            targetOrigin.y = currentOrigin.y + (originY - currentOrigin.y) * 0.18
+            if abs(targetOrigin.x - currentOrigin.x) < 0.5,
+               abs(targetOrigin.y - currentOrigin.y) < 0.5 {
+                targetOrigin = CGPoint(x: originX, y: originY)
+            }
+        }
+        if panel.frame.origin != targetOrigin {
+            panel.setFrameOrigin(targetOrigin)
+        }
     }
 
     private func resizePanelToFitContent() {
@@ -299,38 +306,7 @@ private struct FlickyResponseOverlayView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: 310, alignment: .leading)
 
-                // Financial badge (balance + safe to spend)
-                if let badge = viewModel.financialBadge {
-                    Divider()
-                        .background(DS.Colors.borderSubtle.opacity(0.5))
-                        .padding(.top, 8)
-                        .padding(.bottom, 6)
 
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("Balance")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundColor(DS.Colors.textTertiary)
-                            Text(badge.balanceText)
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(DS.Colors.textPrimary)
-                        }
-
-                        Rectangle()
-                            .fill(DS.Colors.borderSubtle)
-                            .frame(width: 0.5)
-                            .frame(height: 24)
-
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("Safe to Spend")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundColor(DS.Colors.textTertiary)
-                            Text(badge.safeToSpendText)
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(badge.safeToSpendColor)
-                        }
-                    }
-                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)

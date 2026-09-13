@@ -31,7 +31,7 @@
 
 The core is Tasks 1–8 and 10. Task 8 is the required conversational cursor, including voice and session memory. Optional identity-gated mitigation is Task 9, independently skippable without breaking the read-only core. Task 10 is mandatory even when optional features are omitted. Sequence: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → optional 9 → 10. Individual checklist entries are small actions; each task is a coherent reviewable deliverable.
 
-There is no existing application in this repository. All application paths below are proposed new files, not claims about existing code. Inspect AGENTS.md and current git status again at execution time. Use a `codex/` branch if creating a branch; preserve the visible planning documents. Do not copy planning content into unrelated public docs. Do not clone Clicky into this repository as the implementation foundation.
+There is no existing application in this repository. All application paths below are proposed new files, not claims about existing code. Inspect AGENTS.md and current git status again at execution time. Use a `codex/` branch if creating a branch; preserve the visible planning documents. Do not copy planning content into unrelated public docs. Use the project’s existing implementation foundation.
 
 ## File ownership map
 
@@ -472,7 +472,7 @@ it('ambiguous submission cannot be blindly retried', async () => {
 - [ ] Run `npm run typecheck`, `npm test`, `npm run build`. Expected: all pass, no skipped core cases, no external financial writes. Fix failures before packaging; do not rerun unchanged suites after evidence is sufficient.
 - [ ] Run `npm run package:mac` on macOS and `npm run package:win` on Windows or a supported native build runner; launch each artifact on its target OS. Record actual OS/hardware, build command, result, permission flow and core smoke-test result in `docs/verification.md`. If Windows hardware is unavailable, report Windows unverified and preserve it as an outstanding acceptance item.
 - [ ] Perform the checklist in `plans/2026-09-12-cursor-financial-bodyguard-demo.md`. Measure five hover runs per OS; record median and slowest response. If target is missed, show an analyzing state and report measured timing instead of claiming instant results.
-- [ ] Write a delivery note in `plans/delivery-notes.md` covering setup, three data modes, secrets configuration, supported/tested OS matrix, capture permissions, manual fallback, optional-feature status and known limits. Credit Clicky inspiration and any actual copied files/license notices; if no source is copied, say inspired by, not forked from. Check event rules and sponsor requirements against the official material supplied by the user.
+- [ ] Write a delivery note in `plans/delivery-notes.md` covering setup, three data modes, secrets configuration, supported/tested OS matrix, capture permissions, manual fallback, optional-feature status and known limits. Preserve license notices for any copied source and accurately describe the implemented work. Check event rules and sponsor requirements against the official material supplied by the user.
 - [ ] Commit with `docs: package and document verified hackathon demo`. Report actual completed scope, tests, remaining platform/provider gaps, and artifacts. Do not publish, submit or deploy as part of this plan unless separately requested.
 
 ## Plan self-review and continuation
