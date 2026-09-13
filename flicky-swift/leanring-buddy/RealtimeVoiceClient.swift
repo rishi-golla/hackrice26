@@ -23,6 +23,7 @@ struct FlickyRealtimeContext {
 @MainActor
 final class RealtimeVoiceClient {
     enum Phase { case listening, processing, speaking, idle }
+    var onSessionConfigured: ((String, String) -> Void)?
     var onPhase: ((Phase) -> Void)?
     var onLevel: ((CGFloat) -> Void)?
     var onTranscript: ((String) -> Void)?
@@ -54,6 +55,7 @@ final class RealtimeVoiceClient {
     private var capturedByteCount = 0
     private var pendingPlaybackBuffers = 0
     private var responseFinished = false
+    private var inputText: String?
     private var transcript = ""
     private var reply = ""
     private var toolCallCount = 0
@@ -68,13 +70,22 @@ final class RealtimeVoiceClient {
         playback.connect(player, to: playback.mainMixerNode, format: playbackFormat)
     }
 
-    func start(recordedAudio: Data? = nil, context: @escaping () async -> FlickyRealtimeContext) {
+    func start(recordedAudio: Data? = nil, text: String? = nil, context: @escaping () async -> FlickyRealtimeContext) {
         cancel()
         isActive = true
         let requestGeneration = generation
-        onPhase?(.listening)
+        inputText = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let inputText {
+            guard !inputText.isEmpty else { cancel(); return }
+            transcript = inputText
+            onTranscript?(inputText)
+            finishRequested = true
+        }
+        onPhase?(inputText == nil ? .listening : .processing)
         do {
-            if let recordedAudio {
+            if inputText != nil {
+                // Button and typed questions use the same audio output without opening the mic.
+            } else if let recordedAudio {
                 capture(recordedAudio)
             } else {
                 let converter = BuddyPCM16AudioConverter(targetSampleRate: 24000)
@@ -100,10 +111,12 @@ final class RealtimeVoiceClient {
             fail(error.localizedDescription)
             return
         }
-        recordingLimitTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(30))
-            guard !Task.isCancelled, let self, self.generation == requestGeneration else { return }
-            self.finishInput()
+        if inputText == nil {
+            recordingLimitTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled, let self, self.generation == requestGeneration else { return }
+                self.finishInput()
+            }
         }
         deadlineTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(120))
@@ -164,6 +177,7 @@ final class RealtimeVoiceClient {
         capturedByteCount = 0
         pendingPlaybackBuffers = 0
         responseFinished = false
+        inputText = nil
         transcript = ""
         reply = ""
         toolCallCount = 0
@@ -194,6 +208,13 @@ final class RealtimeVoiceClient {
 
     private func commitIfReady() {
         guard isActive, ready, finishRequested, !committed else { return }
+        if let inputText {
+            committed = true
+            enqueue(["type": "conversation.item.create", "item": ["type": "message", "role": "user",
+                "content": [["type": "input_text", "text": inputText]]]])
+            enqueue(["type": "response.create"])
+            return
+        }
         guard capturedByteCount >= 4800 else {
             fail("I didn't catch that. Hold Control + Option while you speak.")
             return
@@ -229,10 +250,12 @@ final class RealtimeVoiceClient {
             "type": "session.update",
             "session": [
                 "type": "realtime",
+                "output_modalities": ["audio"],
+                "audio": ["output": ["voice": "marin"]],
                 "instructions": context.instructions,
                 "tools": [[
                     "type": "function", "name": "research_financial_question",
-                    "description": "Ask Flicky's Claude research pipeline to analyze a financial or shopping question using the current screen and verified account data. It can show evidence and search product listings. Not a live stock quote feed. Use for research, shopping, screen actions, and detailed account analysis.",
+                    "description": "Ask PeppaPrice's Claude research pipeline to analyze a financial or shopping question using the current screen and verified account data. It can show evidence and search product listings. Not a live stock quote feed. Use for research, shopping, screen actions, and detailed account analysis.",
                     "parameters": ["type": "object", "properties": ["question": ["type": "string"]],
                                    "required": ["question"], "additionalProperties": false],
                 ]],
@@ -241,8 +264,23 @@ final class RealtimeVoiceClient {
         ], socket: socket)
         while true {
             let event = try await receive(socket)
-            if event["type"] as? String == "session.updated" { break }
-            if event["type"] as? String == "error" { throw voiceError("Voice settings were rejected by OpenAI.") }
+            if event["type"] as? String == "session.updated" {
+                let settings = event["session"] as? [String: Any] ?? [:]
+                let audio = settings["audio"] as? [String: Any] ?? [:]
+                let output = audio["output"] as? [String: Any] ?? [:]
+                let model = settings["model"] as? String ?? ""
+                let voice = output["voice"] as? String ?? ""
+                guard (model == "gpt-realtime" || model.hasPrefix("gpt-realtime-20")), voice == "marin" else {
+                    throw voiceError("The voice service returned unexpected settings. PeppaPrice only uses GPT Realtime with Marin.")
+                }
+                onSessionConfigured?(model, voice)
+                break
+            }
+            if event["type"] as? String == "error" {
+                let details = event["error"] as? [String: Any] ?? [:]
+                print("Realtime settings error: \(details["code"] ?? "unknown"), parameter: \(details["param"] ?? "unknown"), \(details["message"] ?? "")")
+                throw voiceError("Voice settings were rejected by OpenAI.")
+            }
         }
         for turn in context.history.suffix(6) {
             try await send(["type": "conversation.item.create", "item": ["type": "message", "role": "user", "content": [["type": "input_text", "text": turn.user]]]], socket: socket)

@@ -1,4 +1,4 @@
-// NessieAPIClient.swift — Direct Capital One Nessie API client for Flicky
+// NessieAPIClient.swift — Direct Capital One Nessie API client for PeppaPrice
 //
 // Fetches live banking data: account balance, bills, deposits, withdrawals.
 // All amounts from the Nessie sandbox are in dollars by default.

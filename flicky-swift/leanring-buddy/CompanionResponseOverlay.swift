@@ -1,4 +1,4 @@
-// CompanionResponseOverlay.swift — Flicky cursor-following response overlay
+// CompanionResponseOverlay.swift — PeppaPrice cursor-following response overlay
 //
 // Displays streaming AI response text + financial proof data next to the cursor.
 // Non-activating NSPanel: floats above all apps without stealing focus.
@@ -37,7 +37,7 @@ final class CompanionResponseOverlayManager {
     private var autoHideWorkItem: DispatchWorkItem?
     private var shouldAutoHideAfterSpeaking = false
 
-    private let cursorOffsetX: CGFloat = 22
+    private let cursorOffsetX: CGFloat = 90
     private let cursorOffsetY: CGFloat = 6
     private let overlayMaxWidth: CGFloat = 360
 
@@ -50,7 +50,7 @@ final class CompanionResponseOverlayManager {
 
     /// Begins a brand-new autonomous question/session. Positions the bubble once
     /// near the cursor's current location and then holds that position for every
-    /// round of the session, including any autonomous follow-up rounds Flicky
+    /// round of the session, including any autonomous follow-up rounds PeppaPrice
     /// runs on its own without the user pressing push-to-talk again.
     ///
     /// Previously this repositioned the panel every frame to continuously chase
@@ -97,7 +97,7 @@ final class CompanionResponseOverlayManager {
 
     func updateStreamingText(_ accumulatedText: String) {
         // Hide complete and partial control tags while SSE is still arriving.
-        let controlTags = #"\[(?:METRIC|SEARCH|NAVIGATE|POINT|INSIGHTS|SIMULATE)(?:[^\]]*\]|[^\]]*$)"#
+        let controlTags = #"\[(?:METRIC|SEARCH|SHOP|BASKET|NAVIGATE|POINT|INSIGHTS|SIMULATE)(?:[^\]]*\]|[^\]]*$)"#
         viewModel.streamingResponseText = accumulatedText.replacingOccurrences(
             of: controlTags, with: "", options: [.regularExpression, .caseInsensitive]
         )
@@ -126,7 +126,7 @@ final class CompanionResponseOverlayManager {
     /// `isFinalRound` distinguishes a truly finished answer from a round that is
     /// part of an ongoing autonomous research session (see
     /// `CompanionManager.runFlickyQueryPipeline`). Only the final round schedules
-    /// the auto-hide timer — while Flicky is still iterating, the bubble should
+    /// the auto-hide timer — while PeppaPrice is still iterating, the bubble should
     /// stay on screen and simply get replaced by the next round's text instead
     /// of disappearing and reappearing between rounds.
     func finishStreaming(isFinalRound: Bool = true) {
@@ -265,7 +265,7 @@ private struct FlickyResponseOverlayView: View {
     var body: some View {
         if viewModel.isShowingResponse {
             VStack(alignment: .leading, spacing: 0) {
-                // Stop button — lets the user cut off Flicky mid-answer or
+                // Stop button — lets the user cut off PeppaPrice mid-answer or
                 // mid-autonomous-research-loop, since until now there was no
                 // way to interrupt it once it started talking.
                 if viewModel.isSpeaking {

@@ -1,4 +1,4 @@
-// CompanionPanelView.swift — Flicky Financial Advisor Panel
+// CompanionPanelView.swift — PeppaPrice Financial Advisor Panel
 //
 // The SwiftUI content inside the menu bar panel.
 // Shows: login modal → financial proof panel → permissions + controls.
@@ -12,6 +12,7 @@ struct CompanionPanelView: View {
     @State private var loginEmail: String = ""
     @State private var isLoggingIn = false
 
+    @FocusState private var isQuestionFocused: Bool
     @State private var question = ""
     @State private var isOptionsMenuPresented = false
     private let secondaryText = Color(red: 0.65, green: 0.67, blue: 0.73)
@@ -56,28 +57,31 @@ struct CompanionPanelView: View {
                 .allowsHitTesting(false)
         }
         .preferredColorScheme(.dark)
+        .onReceive(NotificationCenter.default.publisher(for: .flickyPanelOpened)) { _ in
+            isQuestionFocused = companionManager.isLoggedIn && companionManager.allPermissionsGranted
+        }
+        .onExitCommand {
+            NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
+        }
     }
 
     // MARK: - Header
 
     private var panelHeader: some View {
         HStack(spacing: 18) {
-            Circle()
-                .fill(statusDotColor)
-                .frame(width: 14, height: 14)
-                .shadow(color: statusDotColor.opacity(0.45), radius: 9)
+            Image("PeppaPriceLogo")
+                .resizable()
+                .interpolation(.none)
+                .scaledToFit()
+                .frame(width: 44, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: 9))
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Flicky")
+                Text("PeppaPrice")
                     .font(.system(size: 21, weight: .semibold))
                     .foregroundStyle(.white)
-                Text("Financial Advisor")
-                    .font(.system(size: 14))
-                    .foregroundStyle(secondaryText)
             }
             Spacer(minLength: 8)
-            Text(statusText)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(statusDotColor.opacity(0.85))
             optionsButton
         }
         .padding(.horizontal, 6)
@@ -101,12 +105,16 @@ struct CompanionPanelView: View {
             }
             .buttonStyle(.plain)
             .focusEffectDisabled()
-            .accessibilityLabel("Flicky options")
-            .accessibilityHint("Show Flicky actions")
+            .accessibilityLabel("PeppaPrice options")
+            .accessibilityHint("Show PeppaPrice actions")
             .pointerCursor()
 
             if isOptionsMenuPresented {
                 VStack(alignment: .leading, spacing: 4) {
+                    optionsMenuButton(companionManager.isClickyCursorEnabled ? "Hide pet" : "Show pet", icon: "cursorarrow.motionlines") {
+                        companionManager.setClickyCursorEnabled(!companionManager.isClickyCursorEnabled)
+                        isOptionsMenuPresented = false
+                    }
                     optionsMenuButton("Refresh account", icon: "arrow.clockwise", isDisabled: !companionManager.isLoggedIn) {
                         isOptionsMenuPresented = false
                         Task { await companionManager.refreshFinancialData() }
@@ -115,11 +123,20 @@ struct CompanionPanelView: View {
                         isOptionsMenuPresented = false
                         NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
                     }
+                    optionsMenuButton("Credit simulation", icon: "creditcard") {
+                        isOptionsMenuPresented = false
+                        companionManager.showCreditSimulation()
+                    }
+                    optionsMenuButton("Shopping basket", icon: "basket") {
+                        isOptionsMenuPresented = false
+                        companionManager.suggestionsDrawerManager.hide()
+                        companionManager.shoppingBasketManager.show()
+                    }
                     Rectangle()
                         .fill(.white.opacity(0.12))
                         .frame(height: 1)
                         .padding(.vertical, 4)
-                    optionsMenuButton("Quit Flicky", icon: "power") {
+                    optionsMenuButton("Quit PeppaPrice", icon: "power") {
                         isOptionsMenuPresented = false
                         NSApp.terminate(nil)
                     }
@@ -327,6 +344,18 @@ struct CompanionPanelView: View {
             if let customer = companionManager.nessieCustomer {
                 HStack(spacing: 10) {
                     Menu {
+                        if !companionManager.demoAccounts.isEmpty {
+                            Section("20 demo accounts") {
+                                ForEach(companionManager.demoAccounts) { account in
+                                    Button {
+                                        Task { await companionManager.selectDemoAccount(account) }
+                                    } label: {
+                                        Label(account.nickname, systemImage: account.id == companionManager.loginState?.accountId ? "checkmark.circle.fill" : "circle")
+                                    }
+                                }
+                            }
+                            Divider()
+                        }
                         ForEach(customer.accounts) { account in
                             Button {
                                 Task { await companionManager.selectNessieAccount(account) }
@@ -459,12 +488,13 @@ struct CompanionPanelView: View {
                 Image(systemName: "sparkles")
                     .font(.system(size: 22))
                     .foregroundStyle(Color(red: 0.72, green: 0.77, blue: 0.91))
-                TextField("Ask Flicky anything…", text: $question)
+                TextField("Ask PeppaPrice anything…", text: $question)
+                    .focused($isQuestionFocused)
                     .textFieldStyle(.plain)
                     .font(.system(size: 15))
                     .foregroundStyle(.white)
                     .onSubmit(submitQuestion)
-                    .accessibilityLabel("Ask Flicky anything")
+                    .accessibilityLabel("Ask PeppaPrice anything")
                 Button(action: submitQuestion) {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 20, weight: .medium))
@@ -521,7 +551,7 @@ struct CompanionPanelView: View {
     }
 
     // Redundant with the stop button on the response overlay itself — this
-    // one lives in the menu bar panel so the user can still cut Flicky off
+    // one lives in the menu bar panel so the user can still cut PeppaPrice off
     // even if the overlay bubble isn't visible or easy to reach.
     private var stopFlickyButton: some View {
         Button(action: {
@@ -530,7 +560,7 @@ struct CompanionPanelView: View {
             HStack(spacing: 6) {
                 Image(systemName: "stop.fill")
                     .font(.system(size: 10))
-                Text("Stop Flicky")
+                Text("Stop PeppaPrice")
                     .font(.system(size: 11, weight: .semibold))
             }
             .foregroundColor(DS.Colors.destructiveText)
@@ -550,31 +580,6 @@ struct CompanionPanelView: View {
         .pointerCursor()
     }
 
-    private var modelPickerRow: some View {
-        HStack(spacing: 0) {
-            modelOptionButton(label: "Sonnet", modelID: "claude-sonnet-4-6")
-            modelOptionButton(label: "Opus", modelID: "claude-opus-4-6")
-        }
-        .padding(2)
-        .background(RoundedRectangle(cornerRadius: 12).fill(.white.opacity(0.045)))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.06)))
-    }
-
-    private func modelOptionButton(label: String, modelID: String) -> some View {
-        let isSelected = companionManager.selectedModel == modelID
-        return Button(action: { companionManager.setSelectedModel(modelID) }) {
-            Text(label)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(isSelected ? .white : secondaryText)
-                .padding(.horizontal, 13)
-                .padding(.vertical, 7)
-                .background(RoundedRectangle(cornerRadius: 10).fill(.white.opacity(isSelected ? 0.08 : 0)))
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-    }
-
     // MARK: - Permissions Section
 
     private var permissionsSection: some View {
@@ -583,7 +588,7 @@ struct CompanionPanelView: View {
                 Text("Setup Required")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundColor(DS.Colors.textSecondary)
-                Text("Grant the permissions below to activate Flicky.")
+                Text("Grant the permissions below to activate PeppaPrice.")
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -666,12 +671,11 @@ struct CompanionPanelView: View {
     private var footerSection: some View {
         HStack(spacing: 14) {
             Image(systemName: "mic").font(.system(size: 23)).foregroundStyle(secondaryText)
-            Text("Hold ⌃ ⌥ to talk")
+            Text("⌘⇧Space to open\nHold ⌃⌥ to talk")
                 .font(.system(size: 12))
                 .foregroundStyle(secondaryText)
-                .help("Hold Control and Option to talk to Flicky")
+                .help("Command–Shift–Space toggles PeppaPrice. Escape closes the panel. Hold Control–Option to talk.")
             Spacer(minLength: 0)
-            modelPickerRow
             if companionManager.isLoggedIn {
                 Rectangle().fill(.white.opacity(0.13)).frame(width: 1, height: 27)
                 Button("Sign out") { companionManager.logout() }

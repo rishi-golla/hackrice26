@@ -12,9 +12,11 @@
 //
 
 import AppKit
+import Carbon
 import SwiftUI
 
 extension Notification.Name {
+    static let flickyPanelOpened = Notification.Name("flickyPanelOpened")
     static let clickyDismissPanel = Notification.Name("clickyDismissPanel")
 }
 
@@ -26,6 +28,9 @@ private class KeyablePanel: NSPanel {
 
 @MainActor
 final class MenuBarPanelManager: NSObject {
+    private var panelKeyMonitor: Any?
+    private var panelHotKey: EventHotKeyRef?
+    private var panelHotKeyHandler: EventHandlerRef?
     private var statusItem: NSStatusItem?
     private var panel: NSPanel?
     private var clickOutsideMonitor: Any?
@@ -39,6 +44,17 @@ final class MenuBarPanelManager: NSObject {
         self.companionManager = companionManager
         super.init()
         createStatusItem()
+        registerPanelShortcut()
+        // Also handle app-directed key events while our nonactivating panel has
+        // focus. System hotkeys are consumed upstream and won't reach this path.
+        panelKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let flags = event.modifierFlags.intersection([.command, .shift, .control, .option])
+            if event.keyCode == UInt16(kVK_Space), flags == [.command, .shift] {
+                if !event.isARepeat { self?.statusItemClicked() }
+                return nil
+            }
+            return event
+        }
 
         dismissPanelObserver = NotificationCenter.default.addObserver(
             forName: .clickyDismissPanel,
@@ -50,6 +66,9 @@ final class MenuBarPanelManager: NSObject {
     }
 
     deinit {
+        if let panelKeyMonitor { NSEvent.removeMonitor(panelKeyMonitor) }
+        if let panelHotKey { UnregisterEventHotKey(panelHotKey) }
+        if let panelHotKeyHandler { RemoveEventHandler(panelHotKeyHandler) }
         if let monitor = clickOutsideMonitor {
             NSEvent.removeMonitor(monitor)
         }
@@ -65,11 +84,11 @@ final class MenuBarPanelManager: NSObject {
 
         guard let button = statusItem?.button else { return }
 
-        button.image = NSImage(
-            systemSymbolName: "sparkles",
-            accessibilityDescription: "Clicky"
-        )
-        button.image?.isTemplate = true
+        button.image = NSImage(named: "PeppaPriceLogo")?.copy() as? NSImage
+        button.image?.size = NSSize(width: 20, height: 20)
+        button.setAccessibilityLabel("PeppaPrice")
+        button.toolTip = "PeppaPrice — ⌘⇧Space to open"
+        button.image?.isTemplate = false
         button.action = #selector(statusItemClicked)
         button.target = self
     }
@@ -91,6 +110,37 @@ final class MenuBarPanelManager: NSObject {
         }
     }
 
+    // Register a real system hotkey: works before Accessibility permission and
+    // consumes the chord so it doesn't also type into the foreground app.
+    private func registerPanelShortcut() {
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
+                                      eventKind: UInt32(kEventHotKeyPressed))
+        let handlerStatus = InstallEventHandler(GetApplicationEventTarget(), { _, event, context in
+            guard let event, let context else { return OSStatus(eventNotHandledErr) }
+            var identifier = EventHotKeyID()
+            let result = GetEventParameter(event, EventParamName(kEventParamDirectObject),
+                EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size,
+                nil, &identifier)
+            guard result == noErr, identifier.signature == 0x464C4B59, identifier.id == 1 else {
+                return OSStatus(eventNotHandledErr)
+            }
+            let manager = Unmanaged<MenuBarPanelManager>.fromOpaque(context).takeUnretainedValue()
+            Task { @MainActor [weak manager] in manager?.statusItemClicked() }
+            return noErr
+        }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), &panelHotKeyHandler)
+        guard handlerStatus == noErr else {
+            print("PeppaPrice: couldn't install panel shortcut handler (\(handlerStatus))")
+            return
+        }
+        let identifier = EventHotKeyID(signature: 0x464C4B59, id: 1)
+        let status = RegisterEventHotKey(UInt32(kVK_Space), UInt32(cmdKey | shiftKey),
+                                        identifier, GetApplicationEventTarget(), 0, &panelHotKey)
+        if status != noErr {
+            print("PeppaPrice: couldn't register ⌘⇧Space (\(status)); shortcut may be in use")
+            statusItem?.button?.toolTip = "PeppaPrice — panel shortcut unavailable (⌘⇧Space may be in use)"
+        }
+    }
+
     // MARK: - Panel Lifecycle
 
     private func showPanel() {
@@ -103,6 +153,7 @@ final class MenuBarPanelManager: NSObject {
         panel?.makeKeyAndOrderFront(nil)
         panel?.orderFrontRegardless()
         installClickOutsideMonitor()
+        NotificationCenter.default.post(name: .flickyPanelOpened, object: nil)
     }
 
     private func hidePanel() {

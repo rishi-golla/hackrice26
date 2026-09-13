@@ -1,4 +1,4 @@
-// FinancialModels.swift — Flicky financial data structures
+// FinancialModels.swift — PeppaPrice financial data structures
 
 import Foundation
 
@@ -52,7 +52,7 @@ struct FinancialInsights {
     // glance, the same way a credit score or a fitness ring does. It blends
     // three signals that are already computed elsewhere in this struct, so
     // it costs nothing extra to fetch — the value comes entirely from
-    // combining data Flicky already has in a way no single existing number
+    // combining data PeppaPrice already has in a way no single existing number
     // (balance, safe-to-spend, etc.) communicates on its own:
     //
     //   1. Cushion (40%)   — how much of your balance is actually free to
@@ -308,7 +308,7 @@ struct ProductSearchResponse {
     let query: String
 }
 
-// MARK: - Flicky Voice State
+// MARK: - PeppaPrice Voice State
 
 enum FlickyVoiceState {
     case idle

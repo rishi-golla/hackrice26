@@ -1,4 +1,4 @@
-// ClickyAnalytics.swift — Stubbed out for Flicky (PostHog removed)
+// ClickyAnalytics.swift — Stubbed out for PeppaPrice (PostHog removed)
 // All methods are no-ops. This stub keeps the rest of the codebase compiling
 // without requiring the PostHog Swift SDK.
 

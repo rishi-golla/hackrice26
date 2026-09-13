@@ -9,6 +9,7 @@ struct BasketProduct: Codable, Identifiable, Equatable {
     let source: String
     let imageURL: String?
     let deliveryInfo: String?
+    var verifiedPage: VerifiedProductPage?
 
     init(_ listing: ProductSearchResult) {
         title = listing.title
@@ -17,6 +18,23 @@ struct BasketProduct: Codable, Identifiable, Equatable {
         source = listing.source
         imageURL = listing.imageURL
         deliveryInfo = listing.deliveryInfo
+        verifiedPage = nil
+    }
+
+    init(page: VerifiedProductPage) {
+        title = page.title
+        price = page.unitPriceCents.map(Self.money) ?? "Price not confirmed"
+        url = page.productURL
+        source = URL(string: page.productURL)?.host?.replacingOccurrences(of: "www.", with: "") ?? "Retailer"
+        imageURL = page.imageURL
+        deliveryInfo = nil
+        verifiedPage = page
+    }
+
+    var readyForDemoCheckout: Bool {
+        guard let page = verifiedPage else { return false }
+        return page.hasVerifiedPrice && page.imageURL != nil && page.availability != .outOfStock
+            && Date().timeIntervalSince(page.observedAt) < 15 * 60
     }
 
     var unitPriceCents: Int? { Self.usdCents(price) }
@@ -45,7 +63,7 @@ struct BasketProduct: Codable, Identifiable, Equatable {
         return label.isEmpty || label.lowercased() == "web" ? (listingURL?.host ?? "Store") : label
     }
 
-    static func money(_ cents: Int) -> String { String(format: "$%.2f", Double(cents) / 100) }
+    nonisolated static func money(_ cents: Int) -> String { String(format: "$%.2f", Double(cents) / 100) }
 }
 
 struct ShoppingBasketLine: Codable, Identifiable {
@@ -82,6 +100,9 @@ final class ShoppingBasketStore: ObservableObject {
     @Published private(set) var lines: [ShoppingBasketLine] = []
     @Published var progress: String?
     @Published var message: String?
+    @Published private(set) var isSaved = true
+    @Published var verificationIssues: [String: String] = [:]
+    @Published var isLocked = false
     private let storageURL: URL?
 
     init(storageURL: URL? = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.appendingPathComponent("Flicky/shopping-basket.json")) {
@@ -96,6 +117,7 @@ final class ShoppingBasketStore: ObservableObject {
                 return validated
             }
         } catch {
+            isSaved = false
             message = "Your saved basket couldn’t be loaded. You can start a new one."
         }
     }
@@ -108,9 +130,10 @@ final class ShoppingBasketStore: ObservableObject {
     }
 
     @discardableResult
-    func addSearch(query: String, quantity: Int, products: [BasketProduct], selectedURL: String?) -> UUID? {
+    func addSearch(query: String, quantity: Int, products: [BasketProduct], selectedURL: String?, deduplicateQuery: Bool = true) -> UUID? {
+        guard !isLocked else { message = "Finish the current demo checkout before changing the basket."; return nil }
         // Repeated model rounds must not duplicate or overwrite a basket the user edited.
-        if let existing = lines.first(where: { $0.query.caseInsensitiveCompare(query) == .orderedSame }) { return existing.id }
+        if deduplicateQuery, let existing = lines.first(where: { $0.query.caseInsensitiveCompare(query) == .orderedSame }) { return existing.id }
         guard lines.count < 24 else { message = "Your basket has 24 different items. Remove one before adding more."; return nil }
         var seen = Set<String>()
         let options = products.filter { $0.listingURL != nil && seen.insert($0.url).inserted }
@@ -127,23 +150,68 @@ final class ShoppingBasketStore: ObservableObject {
         if let existing = lines.first(where: { $0.selectedURL == product.url }) {
             setQuantity(existing.quantity + 1, for: existing.id)
         } else {
-            _ = addSearch(query: product.title, quantity: 1, products: [product], selectedURL: product.url)
+            _ = addSearch(query: product.title, quantity: 1, products: [product], selectedURL: product.url, deduplicateQuery: false)
         }
     }
 
     func setQuantity(_ quantity: Int, for id: UUID) {
+        guard !isLocked else { return }
         guard let index = lines.firstIndex(where: { $0.id == id }) else { return }
         lines[index].quantity = min(99, max(1, quantity))
         save()
     }
 
     func select(_ url: String, for id: UUID) {
+        guard !isLocked else { return }
         guard let index = lines.firstIndex(where: { $0.id == id }), lines[index].options.contains(where: { $0.url == url }) else { return }
         lines[index].selectedURL = url
         save()
     }
 
-    func remove(_ id: UUID) { lines.removeAll { $0.id == id }; save() }
+    func remove(_ id: UUID) { guard !isLocked else { return }; lines.removeAll { $0.id == id }; save() }
+
+    func applyVerifiedPage(_ page: VerifiedProductPage, replacing originalURL: String) {
+        guard !isLocked else { return }
+        let verified = BasketProduct(page: page)
+        for index in lines.indices {
+            lines[index].options = lines[index].options.map { $0.url == originalURL ? verified : $0 }
+            if lines[index].selectedURL == originalURL { lines[index].selectedURL = verified.url }
+        }
+        verificationIssues[originalURL] = nil
+        save()
+    }
+
+    func recordVerificationFailure(for url: String, reason: String) {
+        guard !isLocked else { return }
+        verificationIssues[url] = reason
+        for index in lines.indices {
+            lines[index].options = lines[index].options.map { product in
+                var updated = product
+                if product.url == url { updated.verifiedPage = nil }
+                return updated
+            }
+        }
+        save()
+    }
+
+    func addVerifiedPage(_ page: VerifiedProductPage) {
+        let product = BasketProduct(page: page)
+        if let existing = lines.first(where: { $0.selectedURL == product.url }) {
+            applyVerifiedPage(page, replacing: product.url)
+            setQuantity(existing.quantity + 1, for: existing.id)
+        } else {
+            _ = addSearch(query: product.title, quantity: 1, products: [product], selectedURL: product.url, deduplicateQuery: false)
+        }
+    }
+
+    func removePaidLines(_ ids: Set<UUID>) {
+        lines.removeAll { ids.contains($0.id) }
+        save()
+    }
+
+    var readyForDemoCheckout: Bool {
+        !lines.isEmpty && lines.allSatisfy { $0.product?.readyForDemoCheckout == true }
+    }
 
     var context: String {
         guard !lines.isEmpty else { return "Shopping basket is empty." }
@@ -153,11 +221,15 @@ final class ShoppingBasketStore: ObservableObject {
     }
 
     private func save() {
-        guard let storageURL else { return }
+        guard let storageURL else { isSaved = false; return }
         do {
             try FileManager.default.createDirectory(at: storageURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONEncoder().encode(lines).write(to: storageURL, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: storageURL.path)
-        } catch { message = "Your basket is available now, but couldn’t be saved for next time." }
+            isSaved = true
+        } catch {
+            isSaved = false
+            message = "Your basket is available now, but couldn’t be saved for next time."
+        }
     }
 }

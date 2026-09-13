@@ -176,7 +176,7 @@ final class FlickyResearch: ObservableObject {
         if isInvestmentQuestion { showMetrics(fallback.metrics, snapshot: snapshot) }
         // The planner sees the screen too, so indirect purchase and affordability questions can surface evidence.
         let planningPrompt = """
-        Route this Flicky request. Return ONLY JSON: {"specialists":[],"metrics":[]}.
+        Route this PeppaPrice request. Return ONLY JSON: {"specialists":[],"metrics":[]}.
         Use no specialists for simple questions. For extensive research, comparisons, or multi-factor decisions,
         choose 2–3 independent roles from ["Affordability", "Spending patterns", "Tradeoffs", "Horizon & risk"].
         Choose relevant metrics, including indirect evidence, from ["balance","bills","spending","cashflow","rewards","investing"].
@@ -221,7 +221,7 @@ final class FlickyResearch: ObservableObject {
                 group.addTask {
                     do {
                         let result = try await api.analyzeImage(images: images, systemPrompt: """
-                        You are Flicky's \(specialist.role) specialist. Independently analyze only this aspect of the user's request.
+                        You are PeppaPrice's \(specialist.role) specialist. Independently analyze only this aspect of the user's request.
                         Use the supplied Nessie snapshot, conversation history, and screen evidence. Resolve short replies against earlier goals.
                         For investing, tie findings to the user's actual balance, upcoming obligations, purchase evidence, and stated horizon.
                         Cash after 14-day bills and the $500 reserve is only an upper bound before other living costs and emergency savings,
@@ -247,7 +247,7 @@ final class FlickyResearch: ObservableObject {
                     specialists[index].returnedAt = Date()
                     specialists[index].failed = failed
                     let remaining = specialists.filter { $0.returnedAt == nil }.count
-                    phase = remaining == 0 ? "Findings returned to Flicky" : "\(remaining) specialist\(remaining == 1 ? "" : "s") still working"
+                    phase = remaining == 0 ? "Findings returned to PeppaPrice" : "\(remaining) specialist\(remaining == 1 ? "" : "s") still working"
                     findings.append("\(specialists[index].role): \(finding)")
                 }
             }
@@ -413,7 +413,7 @@ struct FlickyEvidenceView: View {
                 Text(research.phase).font(.system(size: 13, weight: .semibold))
             }
             if research.isPlanning {
-                Text("Flicky is deciding which perspectives need their own specialist.").font(.system(size: 12)).foregroundStyle(ink)
+                Text("PeppaPrice is deciding which perspectives need their own specialist.").font(.system(size: 12)).foregroundStyle(ink)
             } else {
                 HStack(alignment: .top, spacing: 8) {
                     ForEach(research.specialists) { specialist in
@@ -445,8 +445,8 @@ struct FlickyEvidenceView: View {
             Text(research.snapshot == nil ? "Your numbers aren’t available yet" : "No financial metric selected")
                 .font(.system(size: 20, weight: .semibold, design: .rounded))
             Text(research.snapshot == nil
-                 ? "Flicky couldn’t load a Nessie account snapshot. Refresh to retry, or check your Nessie connection in the account panel. No estimates are being substituted."
-                 : "This question may need reasoning without a bank metric. Any specialists above still contribute to Flicky’s answer.")
+                 ? "PeppaPrice couldn’t load a Nessie account snapshot. Refresh to retry, or check your Nessie connection in the account panel. No estimates are being substituted."
+                 : "This question may need reasoning without a bank metric. Any specialists above still contribute to PeppaPrice’s answer.")
                 .font(.system(size: 13)).foregroundStyle(ink).fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -481,7 +481,7 @@ struct FlickyEvidenceView: View {
                 let billTotal = snapshot.upcomingBills.reduce(0) { $0 + $1.amountCents }
                 ledgerRow("Your balance", value: snapshot.formattedBalance, color: .cyan)
                 ledgerRow("Bills due in 14 days", value: "− " + snapshot.formatCents(billTotal), color: .orange)
-                ledgerRow("Flicky's reserve", value: "− $500.00", color: ink)
+                ledgerRow("PeppaPrice's reserve", value: "− $500.00", color: ink)
                 HStack(alignment: .firstTextBaseline) {
                     Text("Remaining cash").font(.system(size: 13, weight: .medium))
                     Spacer()

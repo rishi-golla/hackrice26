@@ -1,7 +1,7 @@
-// leanring_buddyApp.swift — Flicky Financial Advisor
+// leanring_buddyApp.swift — PeppaPrice Financial Advisor
 //
 // Menu bar-only macOS app. No dock icon, no main window.
-// Clicking the menu bar icon opens the floating Flicky panel.
+// Clicking the menu bar icon opens the floating PeppaPrice panel.
 
 import ServiceManagement
 import SwiftUI
@@ -21,7 +21,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     private let companionManager = CompanionManager()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        print("🐦 Flicky Financial Advisor — starting")
+        print("🐦 PeppaPrice Financial Advisor — starting")
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 0])
 
         menuBarPanelManager = MenuBarPanelManager(companionManager: companionManager)
@@ -44,9 +44,9 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         if loginItemService.status != .enabled {
             do {
                 try loginItemService.register()
-                print("🐦 Flicky: Registered as login item")
+                print("🐦 PeppaPrice: Registered as login item")
             } catch {
-                print("⚠️ Flicky: Failed to register login item: \(error)")
+                print("⚠️ PeppaPrice: Failed to register login item: \(error)")
             }
         }
     }

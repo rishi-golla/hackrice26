@@ -1,4 +1,4 @@
-// FinancialInsightsDashboardManager.swift — Flicky financial insights dashboard
+// FinancialInsightsDashboardManager.swift — PeppaPrice financial insights dashboard
 //
 // A toggleable, non-fullscreen NSPanel that gives the user a rich, always-
 // available "second screen" for their financial data — pulling everything
@@ -15,7 +15,7 @@
 // This is intentionally a toggle, not a fixed window: the user asked for
 // "somewhere they can access it at any time" without it "covering the whole
 // screen" — so it opens/closes on demand, either from a button in the menu
-// bar panel or from Flicky itself via the [INSIGHTS] response tag.
+// bar panel or from PeppaPrice itself via the [INSIGHTS] response tag.
 
 import AppKit
 import Charts
@@ -134,7 +134,7 @@ final class FinancialInsightsDashboardManager: NSObject {
 
 /// The focused sections of the dashboard. Splitting into tabs (instead
 /// of one long scroll, which is what this dashboard used to be) keeps each
-/// screen legible even as the amount of financial content Flicky surfaces
+/// screen legible even as the amount of financial content PeppaPrice surfaces
 /// keeps growing — health score and runway in Overview, the category
 /// breakdown in Spending, and bills/subscriptions/rewards in Bills.
 private enum DashboardTab: String, CaseIterable, Identifiable {
@@ -700,7 +700,7 @@ private struct FinancialInsightsDashboardView: View {
     // Sourced from Nessie `/purchases` joined against `/merchants` (see
     // `NessieAPIClient.fetchSpendingByCategory`). This is the answer to
     // "where is my money actually going" — a question nothing else in
-    // Flicky could previously answer, since bills/deposits/withdrawals are
+    // PeppaPrice could previously answer, since bills/deposits/withdrawals are
     // aggregate totals with no sense of what was purchased or from where.
 
     private func categorySpendingSection(insights: FinancialInsights) -> some View {
@@ -744,7 +744,7 @@ private struct FinancialInsightsDashboardView: View {
             Text("No itemized purchases yet")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(DS.Colors.textSecondary)
-            Text("Once purchases post to this account, Flicky will automatically break spending down by category.")
+            Text("Once purchases post to this account, PeppaPrice will automatically break spending down by category.")
                 .font(.system(size: 9.5))
                 .foregroundColor(DS.Colors.textTertiary)
                 .multilineTextAlignment(.center)
@@ -904,7 +904,7 @@ private struct FinancialInsightsDashboardView: View {
             if let points = insights.rewardsPoints, points > 0 {
                 // Assumption, documented for whoever tunes this later: 1
                 // rewards point ≈ $0.01, a common baseline redemption rate
-                // for cashback-style card rewards. Flicky has no live
+                // for cashback-style card rewards. PeppaPrice has no live
                 // point-value data from Nessie, so this is presented as an
                 // estimate, not a guaranteed number.
                 let estimatedDollarValue = Double(points) * 0.01

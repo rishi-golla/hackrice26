@@ -42,3 +42,28 @@
 ## Nessie provenance inspector
 
 `NessieConnectionPanel.swift` exposes actual customer/account discovery and the latest refresh’s redacted API responses. Never present locally recorded logs as independent attestation or sandbox identity as a real bank link. Customer account ownership must be checked before selecting an account. See `../../docs/nessie-judge-demo.md` for independent verification.
+
+### FlickyPigView.swift
+- Shared ImageIO decoder renders the supplied FlickyPig.gif as a transparent winged pet, preserving interior highlights through edge-connected background masking.
+- The existing click-through overlay keeps the pet visible in every voice state, with three audio-reactive/activity dots below it and a static Reduce Motion frame.
+- The pet is available on launch without account or voice permissions; Show/Hide pet in the panel options persists the existing cursor preference.
+
+### ShoppingBasket.swift / ShoppingBasketPanel.swift
+- Shared persistent draft basket; SHOP tags gather multiple product categories, BASKET reopens it, Suggestions can add individual listings.
+- Keep query deduplication for model requests separate from URL identity for explicit listing additions.
+- Use integer cents for unambiguous USD prices; unknown/range/installment/foreign-currency values do not enter totals. Show partial totals explicitly.
+- Verified retailer links/photos/prices come from ProductPageResolver. Search intermediaries and unverified metadata cannot fund checkout. Failed refresh invalidates earlier verification.
+- Only the user’s reviewed Pay in sandbox action submits a Nessie demo withdrawal through DemoCheckoutLedger. Preserve persisted UUID replay protection, account ownership, pending/failed states, and observed bank balances. Never claim real bank/Plaid validation.
+- ShoppingCheckout animates one task per item and opens actual product URLs; cart and order steps are explicitly simulated. No real retailer payment is submitted. Resume incomplete tasks before finishing; restore the checkout lock before any basket mutation.
+- Preserve cancellation checks before applying search results and owner-only local persistence. No fixture inventory in production.
+
+### CreditSimulation.swift / CreditSimulationPanel.swift
+- CREDIT opens the dedicated local soft-pull simulation. Never repurpose retired SIMULATE tags or load the synthetic cohort.
+- Keep all loan pricing hypothetical, source-dated and auditable; input range validation is not credit verification.
+- No SSNs or bureau requests. Use SIM references; never pass simulator inputs to the AI/lenders.
+- Optional owner-only history is isolated by Nessie account. Reset transient state on logout/account changes; stale Nessie data must not enter new runs.
+- Run `../scripts/checks/run-credit-checks.sh` from the app source directory; full builds use Xcode only.
+
+### Unified voice and demo accounts
+- All microphone, typed, and suggestion-button replies use RealtimeVoiceClient with gpt-realtime / marin; no legacy speech fallback. Text input must not open the microphone. Session configuration verifies the returned model/voice; cancellation prevents stale playback.
+- PeppaDemoAccount.swift (~20 lines) loads the local seeded-account index. Switching requires live customer/account ownership verification and clears prior conversation/context. The index never supplies financial values.

@@ -53,7 +53,7 @@ struct NessieConnectionView: View {
                     Image(systemName: "network").font(.system(size: 27, weight: .light)).foregroundStyle(.cyan)
                     VStack(alignment: .leading, spacing: 5) {
                         Text("The connection, on record").font(.system(size: 23, weight: .semibold, design: .rounded))
-                        Text("Customer, accounts, and the API responses behind Flicky.").font(.system(size: 12)).foregroundStyle(secondary)
+                        Text("Customer, accounts, and the API responses behind PeppaPrice.").font(.system(size: 12)).foregroundStyle(secondary)
                     }
                     Spacer(minLength: 0)
                     Button(action: onDismiss) { Image(systemName: "xmark").frame(width: 28, height: 28) }
@@ -66,7 +66,7 @@ struct NessieConnectionView: View {
                         accounts
                         if let insights = companionManager.financialInsights {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("What Flicky calculates").font(.headline)
+                                Text("What PeppaPrice calculates").font(.headline)
                                 Text("\(insights.formattedBalance) − \(insights.formatCents(insights.upcomingBills.reduce(0) { $0 + $1.amountCents })) in 14-day bills − $500 reserve = \(insights.formattedSafeToSpend)")
                                     .font(.system(size: 14, weight: .medium)).monospacedDigit().foregroundStyle(.mint)
                                 Text("Floored at $0. This calculation is local; the balance and bill records come from the responses below.")

@@ -7,11 +7,11 @@
 	<key>VoiceTranscriptionProvider</key>
 	<string>assemblyai</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Flicky uses your microphone so you can ask it financial questions</string>
+	<string>PeppaPrice uses your microphone so you can ask it financial questions</string>
 	<key>NSScreenCaptureUsageDescription</key>
-	<string>Flicky needs screen recording access to see what you're browsing and help you make smarter financial decisions.</string>
+	<string>PeppaPrice needs screen recording access to see what you're browsing and help you make smarter financial decisions.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Flicky uses speech recognition to transcribe your voice when you talk to it</string>
+	<string>PeppaPrice uses speech recognition to transcribe your voice when you talk to it</string>
 
 	<!-- Cloudflare Worker proxy URL — all API calls go through this so keys stay server-side -->
 	<!-- Deploy worker/src/index.ts and paste the deployed URL here -->

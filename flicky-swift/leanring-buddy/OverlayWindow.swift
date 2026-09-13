@@ -2,7 +2,7 @@
 //  OverlayWindow.swift
 //  leanring-buddy
 //
-//  System-wide transparent overlay window for blue glowing cursor.
+//  System-wide transparent overlay window for the winged pig companion.
 //  One OverlayWindow is created per screen so the cursor buddy
 //  seamlessly follows the cursor across multiple monitors.
 //
@@ -78,17 +78,15 @@ enum BuddyNavigationMode {
     case pointingAtTarget
 }
 
-// SwiftUI view for the blue glowing cursor pointer.
-// Each screen gets its own BlueCursorView. The view checks whether
-// the cursor is currently on THIS screen and only shows the buddy
-// triangle when it is. During voice interaction, the triangle is
-// replaced by a waveform (listening), spinner (processing), or
-// streaming text bubble (responding).
+// Each screen gets its own cursor-following view. Only the active screen
+// renders the pig; it stays visible through every voice state, with activity
+// dots underneath and the response in its separate interactive panel.
 struct BlueCursorView: View {
     let screenFrame: CGRect
     let isFirstAppearance: Bool
     @ObservedObject var companionManager: CompanionManager
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var cursorPosition: CGPoint
     @State private var isCursorOnThisScreen: Bool
 
@@ -102,7 +100,8 @@ struct BlueCursorView: View {
         let mouseLocation = NSEvent.mouseLocation
         let localX = mouseLocation.x - screenFrame.origin.x
         let localY = screenFrame.height - (mouseLocation.y - screenFrame.origin.y)
-        _cursorPosition = State(initialValue: CGPoint(x: localX + 35, y: localY + 25))
+        _cursorPosition = State(initialValue: CGPoint(x: min(max(localX + 48, 34), screenFrame.width - 34),
+                                                               y: min(max(localY + 38, 34), screenFrame.height - 34)))
         _isCursorOnThisScreen = State(initialValue: screenFrame.contains(mouseLocation))
     }
     @State private var timer: Timer?
@@ -163,7 +162,7 @@ struct BlueCursorView: View {
     private let onboardingVideoPlayerWidth: CGFloat = 330
     private let onboardingVideoPlayerHeight: CGFloat = 186
 
-    private let fullWelcomeMessage = "hey! i'm flicky, your financial advisor"
+    private let fullWelcomeMessage = "hey! i'm PeppaPrice, your financial advisor"
 
     private let navigationPointerPhrases = [
         "right here!",
@@ -287,19 +286,14 @@ struct BlueCursorView: View {
                     }
             }
 
-            // Blue waveform — replaces the triangle while listening
-            BlueCursorWaveformView(audioPowerLevel: companionManager.currentAudioPowerLevel)
-                .opacity(buddyIsVisibleOnThisScreen && companionManager.voiceState == .listening ? cursorOpacity : 0)
-                .position(cursorPosition)
-                .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
-                .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
-
-            // Blue spinner — shown while the AI is processing (transcription + Claude + waiting for TTS)
-            BlueCursorSpinnerView()
-                .opacity(buddyIsVisibleOnThisScreen && companionManager.voiceState == .processing ? cursorOpacity : 0)
-                .position(cursorPosition)
-                .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
-                .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
+            // Keep the pet present through listening, thinking, and speaking.
+            if buddyIsVisibleOnThisScreen {
+                FlickyPigView(voiceState: companionManager.voiceState,
+                              audioPower: companionManager.currentAudioPowerLevel)
+                    .opacity(cursorOpacity)
+                    .position(cursorPosition)
+                    .animation(reduceMotion ? nil : .spring(response: 0.25, dampingFraction: 0.8), value: cursorPosition)
+            }
 
         }
         .frame(width: screenFrame.width, height: screenFrame.height)
@@ -310,7 +304,7 @@ struct BlueCursorView: View {
             isCursorOnThisScreen = screenFrame.contains(mouseLocation)
 
             let swiftUIPosition = convertScreenPointToSwiftUICoordinates(mouseLocation)
-            self.cursorPosition = CGPoint(x: swiftUIPosition.x + 35, y: swiftUIPosition.y + 25)
+            self.cursorPosition = petPosition(near: swiftUIPosition)
             self.blobPreviousTrackedPosition = self.cursorPosition
 
             startTrackingCursor()
@@ -374,6 +368,11 @@ struct BlueCursorView: View {
 
     // MARK: - Cursor Tracking
 
+    private func petPosition(near point: CGPoint) -> CGPoint {
+        CGPoint(x: min(max(point.x + 48, 34), screenFrame.width - 34),
+                y: min(max(point.y + 38, 34), screenFrame.height - 34))
+    }
+
     private func startTrackingCursor() {
         timer = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: true) { _ in
             let mouseLocation = NSEvent.mouseLocation
@@ -402,9 +401,7 @@ struct BlueCursorView: View {
 
             // Normal cursor following
             let swiftUIPosition = self.convertScreenPointToSwiftUICoordinates(mouseLocation)
-            let buddyX = swiftUIPosition.x + 35
-            let buddyY = swiftUIPosition.y + 25
-            let newPosition = CGPoint(x: buddyX, y: buddyY)
+            let newPosition = self.petPosition(near: swiftUIPosition)
 
             // Squash-and-stretch: derive per-axis velocity from how far the buddy
             // moved since the last tick, then ease the blob's stretch toward a
@@ -620,7 +617,7 @@ struct BlueCursorView: View {
     private func startFlyingBackToCursor() {
         let mouseLocation = NSEvent.mouseLocation
         let cursorInSwiftUI = convertScreenPointToSwiftUICoordinates(mouseLocation)
-        let cursorWithTrackingOffset = CGPoint(x: cursorInSwiftUI.x + 35, y: cursorInSwiftUI.y + 25)
+        let cursorWithTrackingOffset = petPosition(near: cursorInSwiftUI)
 
         cursorPositionWhenNavigationStarted = cursorInSwiftUI
 

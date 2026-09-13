@@ -1,12 +1,12 @@
-// SuggestionsDrawerManager.swift — Flicky right-edge shopping suggestions drawer
+// SuggestionsDrawerManager.swift — PeppaPrice right-edge shopping suggestions drawer
 //
 // A slide-in NSPanel anchored to the right edge of the main screen showing every
-// listing Flicky has found for the current question, as a scrollable list of
+// listing PeppaPrice has found for the current question, as a scrollable list of
 // minimal cards (photo, price, delivery estimate, source, clickable link).
 //
 // This is intentionally separate from the menu bar panel (CompanionPanelView),
 // which shows only account/financial info per the product split: the menu bar
-// widget is "my bank account", this drawer is "what Flicky is shopping for me."
+// widget is "my bank account", this drawer is "what PeppaPrice is shopping for me."
 
 import AppKit
 import Combine
@@ -23,6 +23,8 @@ final class SuggestionsDrawerViewModel: ObservableObject {
     @Published var listings: [ProductSearchResult] = []
     @Published var query: String = ""
     @Published var isVisible: Bool = false
+    var onAddToBasket: ((ProductSearchResult) -> Void)?
+    var onShowBasket: (() -> Void)?
 }
 
 // MARK: - Drawer Manager
@@ -30,6 +32,12 @@ final class SuggestionsDrawerViewModel: ObservableObject {
 @MainActor
 final class SuggestionsDrawerManager: NSObject {
     private let viewModel = SuggestionsDrawerViewModel()
+    var onAddToBasket: ((ProductSearchResult) -> Void)? {
+        didSet { viewModel.onAddToBasket = onAddToBasket }
+    }
+    var onShowBasket: (() -> Void)? {
+        didSet { viewModel.onShowBasket = onShowBasket }
+    }
     private var drawerPanel: NSPanel?
     private var dismissObserver: NSObjectProtocol?
 
@@ -76,7 +84,7 @@ final class SuggestionsDrawerManager: NSObject {
         }
 
         // Slide in from off-screen to the right, so its arrival visibly reads as
-        // Flicky surfacing suggestions rather than content just popping into view.
+        // PeppaPrice surfacing suggestions rather than content just popping into view.
         let finalFrame = panel.frame
         var startFrame = finalFrame
         startFrame.origin.x = targetScreen.frame.maxX
@@ -178,7 +186,14 @@ private struct SuggestionsDrawerView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
                         ForEach(viewModel.listings) { listing in
-                            SuggestionListingCard(listing: listing)
+                            VStack(alignment: .leading, spacing: 5) {
+                                SuggestionListingCard(listing: listing)
+                                Button { viewModel.onAddToBasket?(listing) } label: {
+                                    Label("Add to basket", systemImage: "plus")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .frame(maxWidth: .infinity).padding(.vertical, 7)
+                                }.buttonStyle(.bordered).pointerCursor()
+                            }
                         }
                     }
                     .padding(10)
@@ -214,6 +229,9 @@ private struct SuggestionsDrawerView: View {
                     .foregroundColor(DS.Colors.textTertiary)
                     .lineLimit(1)
             }
+            Button { viewModel.onShowBasket?() } label: {
+                Label("Shopping basket", systemImage: "basket").font(.system(size: 11, weight: .medium))
+            }.buttonStyle(.plain).foregroundStyle(DS.Colors.blue400).pointerCursor().padding(.top, 6)
         }
         .padding(.horizontal, 12)
         .padding(.top, 12)
